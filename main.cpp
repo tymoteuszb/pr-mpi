@@ -22,16 +22,6 @@ void *logic(void* data) {
 
   return NULL;
 }
-
-void *communication(void* data) {
-  struct competitionData* initial_data = (struct competitionData*) data;
-
-  Communication* communication = new Communication(initial_data->arbiters, initial_data->status);
-  communication->run();
-  delete communication;
-
-  return NULL;
-}
  
 int main (int argc, char* argv[]) {
   int rank, size, status = 0, arbiters = 5;
@@ -56,10 +46,9 @@ int main (int argc, char* argv[]) {
     return 1;
   }
 
-  if (pthread_create(&communication_thread, NULL, communication, &initial_data)) {
-    cout << "communication thread create error";
-    return 1;
-  }
+  Communication* communication = new Communication(arbiters, &status);
+  communication->run();
+  delete communication;
 
   MPI_Finalize();
 
