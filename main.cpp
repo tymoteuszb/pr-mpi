@@ -1,6 +1,8 @@
 #include <mpi.h>
 #include <stdlib.h>
 #include <iostream>
+#include "Logic.h"
+#include "Communication.h"
 
 using namespace std;
  
