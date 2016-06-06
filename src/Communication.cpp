@@ -15,9 +15,10 @@ struct participantsData {
   int participants[100];
 };
 
-Communication::Communication(int arbiters, int* status, int mpiRank, int mpiSize) {
+Communication::Communication(int arbiters, int* status, int* myLamport, int mpiRank, int mpiSize) {
   this->arbiters = arbiters;
   this->status = status;
+  this->myLamport = myLamport;
   this->mpiRank = mpiRank;
   this->mpiSize = mpiSize;
 

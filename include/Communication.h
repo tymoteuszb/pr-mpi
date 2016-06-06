@@ -5,12 +5,13 @@
 
 class Communication {
   public:
-    Communication(int arbiters, int* status, int mpiRank, int mpiSize);
+    Communication(int arbiters, int* status, int* myLamport, int mpiRank, int mpiSize);
     void run();
     virtual ~Communication();
   private:
     int arbiters;
     int* status;
+    int* myLamport;
     int mpiRank;
     int mpiSize;
     MPI_Datatype mpi_single_participant_type;
