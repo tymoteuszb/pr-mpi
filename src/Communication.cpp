@@ -1,6 +1,7 @@
 #include "Communication.h"
 #include <iostream>
 #include <unistd.h>
+#include <mpi.h>
 
 using namespace std;
 
@@ -10,10 +11,24 @@ Communication::Communication(int arbiters, int* status) {
 }
 
 void Communication::run() {
+  int localStatus = *this->status;
+
   while(1) {
-    usleep(1000000);
-    *this->status -= 1;
-    cout << "comm status " << *this->status << endl;
+    if (*this->status == localStatus) {
+
+      if (*this->status == 1) {
+
+      } else if (*this->status == 3) {
+
+      }
+
+    } else if (wiadomosc do odbioru) {
+
+
+
+    } else {
+      usleep(500000);
+    }
   }
 }
 
