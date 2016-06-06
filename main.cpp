@@ -46,7 +46,7 @@ int main (int argc, char* argv[]) {
     return 1;
   }
 
-  Communication* communication = new Communication(arbiters, &status);
+  Communication* communication = new Communication(arbiters, &status, rank, size);
   communication->run();
   delete communication;
 
