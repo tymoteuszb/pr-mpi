@@ -2,6 +2,25 @@
 #define COMMUNICATION_H
 
 #include <mpi.h>
+#include <queue>
+#include <list>
+
+const int maxNumParticipants = 100;
+
+struct singleParticipantData {
+  int id;
+  int lamport;
+
+  bool operator<(const singleParticipantData& other) const {
+    return lamport < other.lamport;
+  }
+};
+
+struct participantsData {
+  int id;
+  int lamport;
+  bool participants[maxNumParticipants] = {false};
+};
 
 class Communication {
   public:
@@ -14,6 +33,10 @@ class Communication {
     int* myLamport;
     int mpiRank;
     int mpiSize;
+    bool waitingForArbiter;
+    std::priority_queue<singleParticipantData> openRequestsQueue;
+    std::priority_queue<singleParticipantData> closeRequestsQueue;
+    std::list<int> awaitingAnswerList;
     MPI_Datatype mpi_single_participant_type;
     MPI_Datatype mpi_participants_type;
 };

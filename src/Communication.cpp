@@ -12,25 +12,13 @@
 
 using namespace std;
 
-const int maxNumParticipants = 100;
-
-struct singleParticipantData {
-  int id;
-  int lamport;
-};
-
-struct participantsData {
-  int id;
-  int lamport;
-  bool participants[maxNumParticipants] = {false};
-};
-
 Communication::Communication(int arbiters, int* status, int* myLamport, int mpiRank, int mpiSize) {
   this->arbiters = arbiters;
   this->status = status;
   this->myLamport = myLamport;
   this->mpiRank = mpiRank;
   this->mpiSize = mpiSize;
+  this->waitingForArbiter = false;
 
   // Declare custom types
 
@@ -60,25 +48,51 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
 
 void Communication::run() {
   int localStatus = *this->status;
+  int i;
 
-  if (this->mpiRank % 2 == 0) {
-    participantsData send;
-    send.id = this->mpiRank;
-    send.lamport = 10;
-    send.participants[0] = true;
-    MPI_Send(&send, 1, this->mpi_participants_type, this->mpiRank+1, 1, MPI_COMM_WORLD);
-  } else {
-    MPI_Status status;
-    participantsData recv;
-    MPI_Recv(&recv, 1, this->mpi_participants_type, this->mpiRank-1, 1, MPI_COMM_WORLD, &status);
-    cout << "odebrałem  od " << recv.id << endl;
-    cout << "participant " << recv.participants[0] << endl;
-  }
+  MPI_Request request;
+  MPI_Status status;
+
+  // if (this->mpiRank % 2 == 0) {
+  //   participantsData send;
+  //   send.id = this->mpiRank;
+  //   send.lamport = 10;
+  //   send.participants[0] = true;
+  //   MPI_Isend(&send, 1, this->mpi_participants_type, this->mpiRank+1, 1, MPI_COMM_WORLD, &request);
+  //   MPI_Wait(&request, &status);
+  // } else {
+  //   participantsData recv;
+  //   MPI_Irecv(&recv, 1, this->mpi_participants_type, this->mpiRank-1, 1, MPI_COMM_WORLD, &request2);
+  //   MPI_Wait(&request2, &status);
+  //   cout << "odebrałem  od " << recv.id << endl;
+  //   cout << "participant " << recv.participants[0] << endl;
+  // }
 
   while(1) {
     if (*this->status == localStatus) {
 
       if (*this->status == 1) {
+        
+        int lamportCopy = *this->myLamport;
+
+        // Moje żądanie
+        struct singleParticipantData myRequest;
+        myRequest.id = this->mpiRank;
+        myRequest.lamport = lamportCopy;
+
+        // Wyślij żądanie do wszystkich procesów, wstaw wszystkie IDki procesów do mojego awaitingAnswerList
+        for (i = 0; i < this->mpiSize; i++) {
+          if (i != this->mpiRank) {
+            MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &request);
+            awaitingAnswerList.push_back(i);
+          }
+        }
+
+        // Dodaj moje żądanie na lokalną kolejkę żądań
+        this->openRequestsQueue.push(myRequest);
+
+        // Zwiększ mój zegar lamporta
+        *this->myLamport += 1;
 
       } else if (*this->status == 3) {
 
