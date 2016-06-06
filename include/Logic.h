@@ -6,6 +6,9 @@ class Logic {
     Logic(int arbiters, int* status);
     void run();
     virtual ~Logic();
+  private:
+    int arbiters;
+    int* status;
 };
 
 #endif

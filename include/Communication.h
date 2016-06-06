@@ -6,6 +6,9 @@ class Communication {
     Communication(int arbiters, int* status);
     void run();
     virtual ~Communication();
+  private:
+    int arbiters;
+    int* status;
 };
 
 #endif
