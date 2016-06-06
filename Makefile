@@ -1,8 +1,7 @@
-EXECS=main
 INC=-Iinclude
 MPICC?=mpic++
 
-all: $(EXECS)
+all: main
 
 main: main.o src/Logic.o src/Communication.o
 	$(MPICC) -o main main.o src/Logic.o src/Communication.o
@@ -17,4 +16,4 @@ src/Communication.o: src/Communication.cpp
 	$(MPICC) $(INC) -c src/Communication.cpp -o src/Communication.o
 
 clean:
-	rm $(EXECS)
+	rm -f *.o && rm -f src/*.o && rm main
