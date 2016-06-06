@@ -1,10 +1,10 @@
-EXECS=hello
-MPICC?=mpicc
+EXECS=main
+MPICC?=mpic++
 
 all: ${EXECS}
 
-hello: hello.c
-	${MPICC} -o hello hello.c
+main: main.cpp
+	${MPICC} -o main main.cpp
 
 clean:
 	rm ${EXECS}

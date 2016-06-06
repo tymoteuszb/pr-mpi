@@ -13,5 +13,5 @@ make
 **Run**
 
 ```
-mpirun -np <num> ./hello
+mpirun -np <num> ./main
 ```
