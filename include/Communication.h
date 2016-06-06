@@ -34,11 +34,14 @@ class Communication {
     int mpiRank;
     int mpiSize;
     bool waitingForArbiter;
+    bool myGroup[maxNumParticipants];
     std::priority_queue<singleParticipantData> openRequestsQueue;
     std::priority_queue<singleParticipantData> closeRequestsQueue;
     std::list<int> awaitingAnswerList;
     MPI_Datatype mpi_single_participant_type;
     MPI_Datatype mpi_participants_type;
+
+    bool MyGroupEmpty();
 };
 
 #endif
