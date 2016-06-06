@@ -11,9 +11,6 @@ Communication::Communication(int arbiters, int* status) {
 
 void Communication::run() {
   while(1) {
-    usleep(1000000);
-    *this->status -= 1;
-    cout << "comm status " << *this->status << endl;
   }
 }
 
