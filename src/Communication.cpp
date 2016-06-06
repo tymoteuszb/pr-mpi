@@ -2,6 +2,14 @@
 #include <iostream>
 #include <unistd.h>
 
+#define TAG_OPEN_REQUEST 0
+#define TAG_OPEN_RESPONSE 1
+#define TAG_CLOSE_REQUEST 2
+#define TAG_CLOSE_RESPONSE 3
+#define TAG_DIE_REQUEST 4
+#define TAG_DIE_RESPONSE 5
+#define TAG_PARTICIPANTS 6
+
 using namespace std;
 
 const int maxNumParticipants = 100;
@@ -67,23 +75,23 @@ void Communication::run() {
     cout << "participant " << recv.participants[0] << endl;
   }
 
-  // while(1) {
-  //   if (*this->status == localStatus) {
+  while(1) {
+    if (*this->status == localStatus) {
 
-  //     if (*this->status == 1) {
+      if (*this->status == 1) {
 
-  //     } else if (*this->status == 3) {
+      } else if (*this->status == 3) {
 
-  //     }
+      }
 
-  //   } else if (1) { // wiadomosc do odbioru
+    } else if (1) { // wiadomosc do odbioru
 
 
 
-  //   } else {
-  //     usleep(500000);
-  //   }
-  // }
+    } else {
+      usleep(500000);
+    }
+  }
 }
 
 Communication::~Communication() {
