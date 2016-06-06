@@ -4,6 +4,8 @@
 
 using namespace std;
 
+const int maxNumParticipants = 100;
+
 struct singleParticipantData {
   int id;
   int lamport;
@@ -12,7 +14,7 @@ struct singleParticipantData {
 struct participantsData {
   int id;
   int lamport;
-  int participants[100];
+  bool participants[maxNumParticipants] = {false};
 };
 
 Communication::Communication(int arbiters, int* status, int* myLamport, int mpiRank, int mpiSize) {
@@ -36,13 +38,13 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
   MPI_Type_commit(&this->mpi_single_participant_type);
 
   // Multiple participants type
-  int participants_blocklengths[3] = {1, 1, 100};
+  int participants_blocklengths[3] = {1, 1, maxNumParticipants};
   MPI_Datatype participants_types[3] = {MPI::INT, MPI::INT, MPI::BOOL};
   MPI_Aint participants_offsets[3];
 
   participants_offsets[0] = offsetof(participantsData, id);
   participants_offsets[1] = offsetof(participantsData, lamport);
-  participants_offsets[1] = offsetof(participantsData, participants);
+  participants_offsets[2] = offsetof(participantsData, participants);
 
   MPI_Type_create_struct(3, participants_blocklengths, participants_offsets, participants_types, &this->mpi_participants_type);
   MPI_Type_commit(&this->mpi_participants_type);
@@ -52,15 +54,17 @@ void Communication::run() {
   int localStatus = *this->status;
 
   if (this->mpiRank % 2 == 0) {
-    singleParticipantData send;
+    participantsData send;
     send.id = this->mpiRank;
     send.lamport = 10;
-    MPI_Send(&send, 1, this->mpi_single_participant_type, this->mpiRank+1, 1, MPI_COMM_WORLD);
+    send.participants[0] = true;
+    MPI_Send(&send, 1, this->mpi_participants_type, this->mpiRank+1, 1, MPI_COMM_WORLD);
   } else {
     MPI_Status status;
-    singleParticipantData recv;
-    MPI_Recv(&recv, 1, this->mpi_single_participant_type, this->mpiRank-1, 1, MPI_COMM_WORLD, &status);
+    participantsData recv;
+    MPI_Recv(&recv, 1, this->mpi_participants_type, this->mpiRank-1, 1, MPI_COMM_WORLD, &status);
     cout << "odebrałem  od " << recv.id << endl;
+    cout << "participant " << recv.participants[0] << endl;
   }
 
   // while(1) {
