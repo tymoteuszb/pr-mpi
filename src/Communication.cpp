@@ -24,17 +24,28 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
 
   // Declare custom types
 
-  // Single participant
-  const int nitems = 2;
-  int blocklengths[2] = {1, 1};
-  MPI_Datatype types[2] = {MPI_INT, MPI_INT};
-  MPI_Aint offsets[2];
+  // Single participant type
+  int participant_blocklengths[2] = {1, 1};
+  MPI_Datatype participant_types[2] = {MPI::INT, MPI::INT};
+  MPI_Aint participant_offsets[2];
 
-  offsets[0] = offsetof(singleParticipantData, id);
-  offsets[1] = offsetof(singleParticipantData, lamport);
+  participant_offsets[0] = offsetof(singleParticipantData, id);
+  participant_offsets[1] = offsetof(singleParticipantData, lamport);
 
-  MPI_Type_create_struct(nitems, blocklengths, offsets, types, &this->mpi_single_participant_type);
+  MPI_Type_create_struct(2, participant_blocklengths, participant_offsets, participant_types, &this->mpi_single_participant_type);
   MPI_Type_commit(&this->mpi_single_participant_type);
+
+  // Multiple participants type
+  int participants_blocklengths[3] = {1, 1, 100};
+  MPI_Datatype participants_types[3] = {MPI::INT, MPI::INT, MPI::BOOL};
+  MPI_Aint participants_offsets[3];
+
+  participants_offsets[0] = offsetof(participantsData, id);
+  participants_offsets[1] = offsetof(participantsData, lamport);
+  participants_offsets[1] = offsetof(participantsData, participants);
+
+  MPI_Type_create_struct(3, participants_blocklengths, participants_offsets, participants_types, &this->mpi_participants_type);
+  MPI_Type_commit(&this->mpi_participants_type);
 }
 
 void Communication::run() {
