@@ -11,12 +11,14 @@ using namespace std;
 struct competitionData {
   int arbiters;
   int* status;
+  int rank;
+  int* myTimer;
 };
 
 void *logic(void* data) {
   struct competitionData* initial_data = (struct competitionData*)(data);
 
-  Logic* logic = new Logic(initial_data->arbiters, initial_data->status);
+  Logic* logic = new Logic(initial_data->status, initial_data->rank, initial_data->myTimer);
   logic->run();
   delete logic;
 
@@ -24,7 +26,7 @@ void *logic(void* data) {
 }
  
 int main (int argc, char* argv[]) {
-  int rank, size, status = 0, arbiters = 5;
+  int rank, size, status = 0, myTimer = 0, arbiters = 5;
 
   MPI_Init(&argc, &argv);
 
@@ -40,13 +42,15 @@ int main (int argc, char* argv[]) {
   struct competitionData initial_data;
   initial_data.arbiters = arbiters;
   initial_data.status = &status;
+  initial_data.rank = rank;
+  initial_data.myTimer = &myTimer;
   
   if (pthread_create(&logic_thread, NULL, logic, &initial_data)) {
     cout << "logic thread create error";
     return 1;
   }
 
-  Communication* communication = new Communication(arbiters, &status);
+  Communication* communication = new Communication(arbiters, &status, &myTimer);
   communication->run();
   delete communication;
 

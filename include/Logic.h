@@ -3,12 +3,13 @@
 
 class Logic {
   public:
-    Logic(int arbiters, int* status);
+    Logic(int* status, int rank, int* myTimer);
     void run();
     virtual ~Logic();
   private:
-    int arbiters;
     int* status;
+    int rank;
+    int* myTimer;
 };
 
 #endif
