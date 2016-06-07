@@ -76,7 +76,6 @@ void Communication::run() {
       myRequest.lamport = lamportCopy;
 
       if (*this->status == 1) {
-        cout << "id: " << this->mpiRank << " host: " << procname << endl;
         // Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
         for (i = 0; i < this->mpiSize; i++) {
           if (i != this->mpiRank) {
@@ -135,6 +134,10 @@ void Communication::run() {
         //cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
         MPI_Test(&recvRequests[i], &ready, MPI_STATUS_IGNORE);
         if (ready) {
+          // Ustaw mój zegar Lamporta
+          *this->myLamport = max(recvData[i].lamport, *this->myLamport) + 1;
+
+          // Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
           this->HandleMessage(i, &recvData[i]);
           anyready = true;
           MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
@@ -144,6 +147,10 @@ void Communication::run() {
       // Sprawdź też dla gupiego typu z dodatkową tablicą
       MPI_Test(&recvRequestWithParticipants, &ready, MPI_STATUS_IGNORE);
       if (ready) {
+        // Ustaw mój zegar Lamporta
+        *this->myLamport = max(recvData[i].lamport, *this->myLamport) + 1;
+
+        // Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
         this->HandleMessageWithParticipants(&recvDataWithParticipants);
         anyready = true;
         MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_OPEN_FREE, MPI_COMM_WORLD, &recvRequestWithParticipants);
