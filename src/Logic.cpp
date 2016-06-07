@@ -21,7 +21,7 @@ void Logic::run() {
   	while(1) {
 
 		//Czekanie aż student zgłosi chęć udziału w zawodach (2-7 sekund)
-		waitingTime = (rand() % 50) * second/10 + 2*second;
+		waitingTime = (rand() % 50) * second/10; // + 2*second
 	    usleep(waitingTime);
 
 	    //Ustawienie statusu 1, informującego drugi wątek, że proces chce wystartować w zawodach
@@ -35,13 +35,12 @@ void Logic::run() {
 	    cout << rank << " ( " << *myLamport << " ) : Zaczynam pic!" <<endl;
 	    
 	    //Picie aż padnę (2-7 sekund)
-		waitingTime = (rand() % 50) * second/10 + 2*second;
+		waitingTime = (rand() % 50) * second/10;// + 2*second;
 	    usleep(waitingTime);
 
 	    //Informacja dla drugiego wątku, że padłem i chcę opuścić grupę
 	    cout << rank << " ( " << *myLamport << " ) : Padlem :(" << endl;
 	    *this->status = 3;
-	    
 
 	    //Czekanie, aż student opuści grupę i nie będzie brał już udziału w zawodach
 	    while(*this->status != 0)

@@ -76,7 +76,7 @@ void Communication::run() {
         // Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
         for (i = 0; i < this->mpiSize; i++) {
           if (i != this->mpiRank) {
-            cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
+            //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
             MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &sendRequest);
             this->awaitingAnswerList.push_back(i);
           }
@@ -86,25 +86,28 @@ void Communication::run() {
         this->openRequestsQueue.push(myRequest);
 
       } else if (*this->status == 3) { // Zgłaszam, że padłem
-
         // Czy zostałem jako jedyny w grupie?
         if (this->MyGroupEmpty()) {
+
+          this->closeRequestsQueue.push(myRequest);
 
           // Wyślij żądanie do wszystkich procesów (sekcja CLOSE), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
           for (i = 0; i < this->mpiSize; i++) {
             if (i != this->mpiRank) {
-              cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
+              //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
               MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &sendRequest);
               this->awaitingAnswerList.push_back(i);
             }
           }
+
+          *this->status = 0;
 
         } else {
 
           // Wyślij do wszystkich członków grupy (tych co w niej nadal są), że chcę opuścić grupę
           for (i = 0; i < maxNumParticipants; i++) {
             if (i != this->mpiRank && this->myGroup[i] == true) {
-              cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
+              //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
               MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD, &sendRequest);
               this->awaitingAnswerList.push_back(i);
             }
@@ -125,7 +128,7 @@ void Communication::run() {
 
       // Sprawdź czy któryś z typów jest gotowy do odbioru
       for (i = 0; i < 7; i++) {
-        cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
+        //cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
         MPI_Test(&recvRequests[i], &ready, MPI_STATUS_IGNORE);
         if (ready) {
           this->HandleMessage(i, &recvData[i]);
@@ -159,11 +162,11 @@ bool Communication::MyGroupEmpty() {
 
   for (i = 0; i < maxNumParticipants; i++) {
     if (i != this->mpiRank && this->myGroup[i] == true) {
-      return true;
+      return false;
     }
   }
 
-  return false;
+  return true;
 }
 
 void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
@@ -195,7 +198,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
       this->awaitingAnswerList.remove(sender.id);
 
       // Czy mogę wejść do sekcji?
-      if (this->awaitingAnswerList.empty() && this->closeRequestsQueue.top().id == this->mpiRank) {
+      if (this->awaitingAnswerList.empty() && !this->closeRequestsQueue.empty() && this->closeRequestsQueue.top().id == this->mpiRank) {
         this->resolveGroup();
       }
     break;
@@ -252,6 +255,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
         if (this->mpiRank > sender.id) {
           // Wyrzuć wysyłającego z grupy
           this->myGroup[sender.id] = false;
+          //cout << "[ " << this->mpiRank << "] wywaliłem " << sender.id << endl;
 
           // Potwierdź, że wysyłający może opuścić grupę
           MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
@@ -260,9 +264,12 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
           *this->myLamport += 1;
 
           if (this->MyGroupEmpty()) {
+            this->awaitingAnswerList.clear();
+            this->closeRequestsQueue.push(myRequest);
             // Do wszystkich oprocz siebie wysyłam żądanie o sekcję CLOSE
             for (i = 0; i < this->mpiSize; i++) {
               if (i != this->mpiRank) {
+                //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE REQUEST do " << i << endl;
                 MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &mpiRequest);
                 this->awaitingAnswerList.push_back(i);
               }
@@ -295,7 +302,7 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
 
   // Dla wszystkich członków nowo powstałej grupy usuń ich żądania dostępu do sekcji krytycznej OPEN
   // Dodatkowo, jeśli sam jestem w tej grupie, dodaję wszystkich członków do mojej lokalnej zmiennej określającej grupę
-  while(sender.participants[tempId]) {
+  while(sender.participants[tempId] && !this->openRequestsQueue.empty()) {
     this->openRequestsQueue.pop();
 
     if (participate) {
@@ -311,6 +318,14 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
   if (!participate && this->localStatus == 1 && this->openRequestsQueue.top().id == this->mpiRank && this->awaitingAnswerList.empty()) {
     this->waitingForArbiter = !this->tryToCreateGroup();
   }
+
+  // Jeśli jestem w grupie, to informuję wątek logiczny, że może zacząć pić
+  if (participate) {
+    this->localStatus = 2;
+    *this->status = 2;
+  }
+
+  this->arbiters -= 1;
 }
 
 bool Communication::tryToCreateGroup() {
@@ -336,7 +351,7 @@ bool Communication::tryToCreateGroup() {
     // Wyślij wiadomość do wszystkich procesów
     for (i = 0; i < this->mpiSize; i++) {
       if (i != this->mpiRank) {
-        cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość PARTICIPANTS do " << i << endl;
+        //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN FREE do " << i << endl;
         MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD, &mpiRequest);
       }
     }
@@ -367,10 +382,13 @@ void Communication::resolveGroup() {
   // Do wszystkich procesów wysyłam wiadomość, że zwalniam sekcję krytyczną #b
   for (i = 0; i < this->mpiSize; i++) {
     if (i != this->mpiRank) {
-      cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE_FREE do " << i << endl;
+      //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE_FREE do " << i << endl;
       MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD, &mpiRequest);
     }
   }
 
+  // Zwiększ zegar lamporta, wróć do początkowego statusu
+  this->localStatus = 0;
+  *this->status = 0;
   *this->myLamport += 1;
 }
