@@ -272,11 +272,45 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
       }
     break;
 
+    case TAG_CLOSE_FREE:
+      // Usuń nadawcę z początku kolejki oczekujących na sekcję krytyczną CLOSE
+      this->closeRequestsQueue.pop();
+
+      // Zwolnij arbitra
+      this->arbiters++;
+
+      // Jeśli czekałem na arbitra, spróbuję jeszcze raz utworzyć grupę
+      if (this->waitingForArbiter) {
+        this->waitingForArbiter = !this->tryToCreateGroup();
+      }
+    break;
+
   }
 }
 
 void Communication::HandleMessageWithParticipants(struct participantsData* data) {
-  cout << "do obsłużenia wiadomość typu 7" << endl;
+  struct participantsData sender = *data;
+  int tempId = this->openRequestsQueue.top().id;
+  bool participate = sender.participants[this->mpiRank];
+
+  // Dla wszystkich członków nowo powstałej grupy usuń ich żądania dostępu do sekcji krytycznej OPEN
+  // Dodatkowo, jeśli sam jestem w tej grupie, dodaję wszystkich członków do mojej lokalnej zmiennej określającej grupę
+  while(sender.participants[tempId]) {
+    this->openRequestsQueue.pop();
+
+    if (participate) {
+      this->myGroup[tempId] = true;
+    }
+
+    tempId = this->openRequestsQueue.top().id;
+  }
+
+  // Jeżeli nie jestem w nowo utworzonej grupie, ale chcę wziąć udział w zawodach
+  // to sprawdzam czy jestem pierwszy na swojej kolejce żądań oraz czy nie oczekuję na żadną odpowiedź
+  // jeżeli te warunki są spełnione - próbuję stworzyć nową grupę
+  if (!participate && this->localStatus == 1 && this->openRequestsQueue.top().id == this->mpiRank && this->awaitingAnswerList.empty()) {
+    this->waitingForArbiter = !this->tryToCreateGroup();
+  }
 }
 
 bool Communication::tryToCreateGroup() {
