@@ -4,6 +4,7 @@
 #include <mpi.h>
 #include <queue>
 #include <list>
+#include <string>
 
 const int maxNumParticipants = 100;
 
@@ -42,6 +43,8 @@ class Communication {
     MPI_Datatype mpi_participants_type;
 
     bool MyGroupEmpty();
+    void HandleMessageWithParticipants(struct participantsData* data);
+    void HandleMessage(int tag, struct singleParticipantData* data);
 };
 
 #endif

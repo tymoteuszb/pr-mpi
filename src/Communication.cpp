@@ -50,23 +50,16 @@ void Communication::run() {
   int localStatus = *this->status;
   int i;
 
-  MPI_Request request;
-  MPI_Status status;
+  MPI_Request sendRequest, recvRequestWithParticipants;
+  MPI_Request recvRequests[6];
+  struct singleParticipantData recvData[6];
+  struct participantsData recvDataWithParticipants;
 
-  // if (this->mpiRank % 2 == 0) {
-  //   participantsData send;
-  //   send.id = this->mpiRank;
-  //   send.lamport = 10;
-  //   send.participants[0] = true;
-  //   MPI_Isend(&send, 1, this->mpi_participants_type, this->mpiRank+1, 1, MPI_COMM_WORLD, &request);
-  //   MPI_Wait(&request, &status);
-  // } else {
-  //   participantsData recv;
-  //   MPI_Irecv(&recv, 1, this->mpi_participants_type, this->mpiRank-1, 1, MPI_COMM_WORLD, &request2);
-  //   MPI_Wait(&request2, &status);
-  //   cout << "odebrałem  od " << recv.id << endl;
-  //   cout << "participant " << recv.participants[0] << endl;
-  // }
+  // Ustaw odbieranie wiadomości każdego typu
+  for (i = 0; i < 6; i++) {
+    MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
+  }
+  MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_PARTICIPANTS, MPI_COMM_WORLD, &recvRequestWithParticipants);
 
   while(1) {
     if (*this->status != localStatus) {
@@ -82,7 +75,8 @@ void Communication::run() {
         // Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
         for (i = 0; i < this->mpiSize; i++) {
           if (i != this->mpiRank) {
-            MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &request);
+            cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
+            MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &sendRequest);
             awaitingAnswerList.push_back(i);
           }
         }
@@ -101,7 +95,8 @@ void Communication::run() {
           // Wyślij żądanie do wszystkich procesów (sekcja CLOSE), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
           for (i = 0; i < this->mpiSize; i++) {
             if (i != this->mpiRank) {
-              MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &request);
+              cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
+              MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &sendRequest);
               awaitingAnswerList.push_back(i);
             }
           }
@@ -111,7 +106,8 @@ void Communication::run() {
           // Wyślij do wszystkich członków grupy (tych co w niej nadal są), że chcę opuścić grupę
           for (i = 0; i < maxNumParticipants; i++) {
             if (i != this->mpiRank && this->myGroup[i] == true) {
-              MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD, &request);
+              cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
+              MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD, &sendRequest);
               awaitingAnswerList.push_back(i);
             }
           }
@@ -125,12 +121,34 @@ void Communication::run() {
 
       localStatus = *this->status;
 
-    } else if (1) { // wiadomosc do odbioru
+    } else { // Wiadomość do odbioru
 
+      int ready = 0;
+      bool anyready = false;
 
+      // Sprawdź czy któryś z typów jest gotowy do odbioru
+      for (i = 0; i < 6; i++) {
+        cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
+        MPI_Test(&recvRequests[i], &ready, MPI_STATUS_IGNORE);
+        if (ready) {
+          this->HandleMessage(i, &recvData[i]);
+          anyready = true;
+          MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
+        }
+      }
 
-    } else {
-      usleep(500000);
+      // Sprawdź też dla gupiego typu z dodatkową tablicą
+      MPI_Test(&recvRequestWithParticipants, &ready, MPI_STATUS_IGNORE);
+      if (ready) {
+        this->HandleMessageWithParticipants(&recvDataWithParticipants);
+        anyready = true;
+        MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_PARTICIPANTS, MPI_COMM_WORLD, &recvRequestWithParticipants);
+      }
+
+      if (!anyready) {
+        usleep(500000);
+      }
+      
     }
   }
 }
@@ -149,4 +167,12 @@ bool Communication::MyGroupEmpty() {
   }
 
   return false;
+}
+
+void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
+  cout << "do obsłużenia wiadomość typu " << tag << endl;
+}
+
+void Communication::HandleMessageWithParticipants(struct participantsData* data) {
+  cout << "do obsłużenia wiadomość typu 7" << endl;
 }
