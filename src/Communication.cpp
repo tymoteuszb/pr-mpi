@@ -56,6 +56,10 @@ void Communication::run() {
   struct singleParticipantData recvData[7];
   struct participantsData recvDataWithParticipants;
 
+  char procname[1000];
+  int a;
+  MPI_Get_processor_name(procname, &a);
+
   // Ustaw odbieranie wiadomości każdego typu
   for (i = 0; i < 7; i++) {
     MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
@@ -70,17 +74,14 @@ void Communication::run() {
       struct singleParticipantData myRequest;
       myRequest.id = this->mpiRank;
       myRequest.lamport = lamportCopy;
-      char procname[1000];
-      int a;
 
       if (*this->status == 1) {
-        MPI_Get_processor_name(procname, &a);
         cout << "id: " << this->mpiRank << " host: " << procname << endl;
         // Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
         for (i = 0; i < this->mpiSize; i++) {
           if (i != this->mpiRank) {
             //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
-            MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &sendRequest);
+            MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD);
             this->awaitingAnswerList.push_back(i);
           }
         }
@@ -98,7 +99,7 @@ void Communication::run() {
           for (i = 0; i < this->mpiSize; i++) {
             if (i != this->mpiRank) {
               //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
-              MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &sendRequest);
+              MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD);
               this->awaitingAnswerList.push_back(i);
             }
           }
@@ -111,7 +112,7 @@ void Communication::run() {
           for (i = 0; i < maxNumParticipants; i++) {
             if (i != this->mpiRank && this->myGroup[i] == true) {
               //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
-              MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD, &sendRequest);
+              MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD);
               this->awaitingAnswerList.push_back(i);
             }
           }
@@ -211,7 +212,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
       this->openRequestsQueue.push(sender);
 
       // Odpowiedz swoim znacznikiem czasowym
-      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_OPEN_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+      MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_OPEN_RESPONSE, MPI_COMM_WORLD);
 
       // Zwiększ mój zegar lamporta
       *this->myLamport += 1;
@@ -222,7 +223,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
       this->closeRequestsQueue.push(sender);
 
       // Odpowiedz swoim znacznikiem czasowym
-      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_CLOSE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+      MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_CLOSE_RESPONSE, MPI_COMM_WORLD);
 
       // Zwiększ mój zegar lamporta
       *this->myLamport += 1;
@@ -250,7 +251,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
         this->myGroup[sender.id] = false;
 
         // Potwierdź, że wysyłający może opuścić grupę
-        MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+        MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD);
 
         // Zwiększ mój zegar lamporta
         *this->myLamport += 1;
@@ -261,7 +262,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
           //cout << "[ " << this->mpiRank << "] wywaliłem " << sender.id << endl;
 
           // Potwierdź, że wysyłający może opuścić grupę
-          MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+          MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD);
 
           // Zwiększ mój zegar lamporta
           *this->myLamport += 1;
@@ -273,7 +274,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
             for (i = 0; i < this->mpiSize; i++) {
               if (i != this->mpiRank) {
                 //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE REQUEST do " << i << endl;
-                MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &mpiRequest);
+                MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD);
                 this->awaitingAnswerList.push_back(i);
               }
             }
@@ -355,7 +356,7 @@ bool Communication::tryToCreateGroup() {
     for (i = 0; i < this->mpiSize; i++) {
       if (i != this->mpiRank) {
         //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN FREE do " << i << endl;
-        MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD, &mpiRequest);
+        MPI_Send(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD);
       }
     }
 
@@ -386,7 +387,7 @@ void Communication::resolveGroup() {
   for (i = 0; i < this->mpiSize; i++) {
     if (i != this->mpiRank) {
       //cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE_FREE do " << i << endl;
-      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD, &mpiRequest);
+      MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD);
     }
   }
 
