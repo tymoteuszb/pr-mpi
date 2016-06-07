@@ -8,7 +8,8 @@
 #define TAG_CLOSE_RESPONSE 3
 #define TAG_DIE_REQUEST 4
 #define TAG_DIE_RESPONSE 5
-#define TAG_PARTICIPANTS 6
+#define TAG_CLOSE_FREE 6
+#define TAG_OPEN_FREE 7
 
 using namespace std;
 
@@ -51,15 +52,15 @@ void Communication::run() {
   int i;
 
   MPI_Request sendRequest, recvRequestWithParticipants;
-  MPI_Request recvRequests[6];
-  struct singleParticipantData recvData[6];
+  MPI_Request recvRequests[7];
+  struct singleParticipantData recvData[7];
   struct participantsData recvDataWithParticipants;
 
   // Ustaw odbieranie wiadomości każdego typu
-  for (i = 0; i < 6; i++) {
+  for (i = 0; i < 7; i++) {
     MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
   }
-  MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_PARTICIPANTS, MPI_COMM_WORLD, &recvRequestWithParticipants);
+  MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_OPEN_FREE, MPI_COMM_WORLD, &recvRequestWithParticipants);
 
   while(1) {
     if (*this->status != this->localStatus) {
@@ -123,7 +124,7 @@ void Communication::run() {
       bool anyready = false;
 
       // Sprawdź czy któryś z typów jest gotowy do odbioru
-      for (i = 0; i < 6; i++) {
+      for (i = 0; i < 7; i++) {
         cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
         MPI_Test(&recvRequests[i], &ready, MPI_STATUS_IGNORE);
         if (ready) {
@@ -138,7 +139,7 @@ void Communication::run() {
       if (ready) {
         this->HandleMessageWithParticipants(&recvDataWithParticipants);
         anyready = true;
-        MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_PARTICIPANTS, MPI_COMM_WORLD, &recvRequestWithParticipants);
+        MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_OPEN_FREE, MPI_COMM_WORLD, &recvRequestWithParticipants);
       }
 
       if (!anyready) {
@@ -165,18 +166,18 @@ bool Communication::MyGroupEmpty() {
   return false;
 }
 
-// #define TAG_OPEN_REQUEST 0
-// #define TAG_OPEN_RESPONSE 1
-// #define TAG_CLOSE_REQUEST 2
-// #define TAG_CLOSE_RESPONSE 3
-// #define TAG_DIE_REQUEST 4
-// #define TAG_DIE_RESPONSE 5
-// #define TAG_PARTICIPANTS 6
-
 void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
   struct singleParticipantData sender = *data;
 
+  MPI_Request mpiRequest;
+
+  int lamportCopy = *this->myLamport;
+  struct singleParticipantData myRequest;
+  myRequest.id = this->mpiRank;
+  myRequest.lamport = lamportCopy;
+
   switch(tag) {
+
     case TAG_OPEN_RESPONSE:
       // Usuń nadawcę z kolejki oczekiwań
       this->awaitingAnswerList.remove(sender.id);
@@ -185,6 +186,34 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
       if (this->awaitingAnswerList.empty() && this->openRequestsQueue.top().id == this->mpiRank) {
         this->waitingForArbiter = !this->tryToCreateGroup();
       }
+    break;
+
+    case TAG_CLOSE_RESPONSE:
+      // Usuń nadawcę z kolejki oczekiwań
+      this->awaitingAnswerList.remove(sender.id);
+
+      // Czy mogę wejść do sekcji?
+      if (this->awaitingAnswerList.empty() && this->closeRequestsQueue.top().id == this->mpiRank) {
+        this->resolveGroup();
+      }
+    break;
+
+    case TAG_OPEN_REQUEST:
+      // Dodaj do lokalnej kolejki nadawcę
+      this->openRequestsQueue.push(sender);
+
+      // Odpowiedz swoim znacznikiem czasowym
+      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_OPEN_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+    break;
+
+    case TAG_CLOSE_REQUEST:
+      // Dodaj do lokalnej kolejki nadawcę
+      this->closeRequestsQueue.push(sender);
+
+      // Odpowiedz swoim znacznikiem czasowym
+      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_CLOSE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+    break;
+
   }
 }
 
@@ -193,7 +222,8 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
 }
 
 bool Communication::tryToCreateGroup() {
-  int id;
+  int id, i;
+  MPI_Request mpiRequest;
 
   // Czy mamy jeszcze arbitrów?
   if (this->arbiters > 0) {
@@ -211,6 +241,14 @@ bool Communication::tryToCreateGroup() {
       this->openRequestsQueue.pop();
     }
 
+    // Wyślij wiadomość do wszystkich procesów
+    for (i = 0; i < this->mpiSize; i++) {
+      if (i != this->mpiRank) {
+        cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość PARTICIPANTS do " << i << endl;
+        MPI_Isend(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD, &mpiRequest);
+      }
+    }
+
     this->localStatus = 2;
     *this->status = 2;
     *this->myLamport += 1;
@@ -219,4 +257,28 @@ bool Communication::tryToCreateGroup() {
   } else {
     return false;
   }
+}
+
+void Communication::resolveGroup() {
+  int i;
+  MPI_Request mpiRequest;
+
+  // Oddajemy arbitra
+  this->arbiters += 1;
+
+  // Przygotuj wiadomość
+  int lamportCopy = *this->myLamport;
+  struct singleParticipantData myRequest;
+  myRequest.id = this->mpiRank;
+  myRequest.lamport = lamportCopy;
+
+  // Do wszystkich procesów wysyłam wiadomość, że zwalniam sekcję krytyczną #b
+  for (i = 0; i < this->mpiSize; i++) {
+    if (i != this->mpiRank) {
+      cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE_FREE do " << i << endl;
+      MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD, &mpiRequest);
+    }
+  }
+
+  *this->myLamport += 1;
 }

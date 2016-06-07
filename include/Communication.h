@@ -48,6 +48,7 @@ class Communication {
 
     bool MyGroupEmpty();
     bool tryToCreateGroup();
+    void resolveGroup();
     void HandleMessageWithParticipants(struct participantsData* data);
     void HandleMessage(int tag, struct singleParticipantData* data);
 };
