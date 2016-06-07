@@ -84,9 +84,6 @@ void Communication::run() {
         // Dodaj moje żądanie na lokalną kolejkę żądań
         this->openRequestsQueue.push(myRequest);
 
-        // Zwiększ mój zegar Lamporta
-        *this->myLamport += 1;
-
       } else if (*this->status == 3) { // Zgłaszam, że padłem
 
         // Czy zostałem jako jedyny w grupie?
@@ -112,13 +109,12 @@ void Communication::run() {
             }
           }
 
-          // Zwiększ mój zegar Lamporta
-          *this->myLamport += 1;
-
         }
 
       }
 
+      // Zwiększ mój zegar Lamporta
+      *this->myLamport += 1;
       this->localStatus = *this->status;
 
     } else { // Wiadomość do odbioru
