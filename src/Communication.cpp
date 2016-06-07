@@ -70,12 +70,12 @@ void Communication::run() {
       struct singleParticipantData myRequest;
       myRequest.id = this->mpiRank;
       myRequest.lamport = lamportCopy;
-      char* procname;
-      int* a;
+      char procname[1000];
+      int a;
 
       if (*this->status == 1) {
-        MPI_Get_processor_name(procname, a);
-        cout << procname << endl;
+        MPI_Get_processor_name(procname, &a);
+        cout << "id: " << this->mpiRank << " host: " << procname << endl;
         // Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
         for (i = 0; i < this->mpiSize; i++) {
           if (i != this->mpiRank) {
