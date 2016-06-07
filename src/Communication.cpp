@@ -78,7 +78,7 @@ void Communication::run() {
           if (i != this->mpiRank) {
             cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
             MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD, &sendRequest);
-            awaitingAnswerList.push_back(i);
+            this->awaitingAnswerList.push_back(i);
           }
         }
 
@@ -95,7 +95,7 @@ void Communication::run() {
             if (i != this->mpiRank) {
               cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
               MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &sendRequest);
-              awaitingAnswerList.push_back(i);
+              this->awaitingAnswerList.push_back(i);
             }
           }
 
@@ -106,7 +106,7 @@ void Communication::run() {
             if (i != this->mpiRank && this->myGroup[i] == true) {
               cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
               MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD, &sendRequest);
-              awaitingAnswerList.push_back(i);
+              this->awaitingAnswerList.push_back(i);
             }
           }
 
@@ -169,6 +169,8 @@ bool Communication::MyGroupEmpty() {
 void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
   struct singleParticipantData sender = *data;
 
+  int i;
+
   MPI_Request mpiRequest;
 
   int lamportCopy = *this->myLamport;
@@ -204,6 +206,9 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
 
       // Odpowiedz swoim znacznikiem czasowym
       MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_OPEN_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+
+      // Zwiększ mój zegar lamporta
+      *this->myLamport += 1;
     break;
 
     case TAG_CLOSE_REQUEST:
@@ -212,6 +217,59 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
 
       // Odpowiedz swoim znacznikiem czasowym
       MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_CLOSE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+
+      // Zwiększ mój zegar lamporta
+      *this->myLamport += 1;
+    break;
+
+    case TAG_DIE_RESPONSE:
+      if (this->myGroup[this->mpiRank] && this->myGroup[sender.id]) {
+        // Już jestem pewien, że mogę opuścić grupę
+        this->awaitingAnswerList.clear();
+
+        // Zmień status lokalny i współdzielony
+        this->localStatus = 0;
+        *this->status = 0;
+
+        // Wyczyść skład grupy
+        for (i = 0; i < this->mpiSize; i++) {
+          this->myGroup[i] = false;
+        }
+      }
+    break;
+
+    case TAG_DIE_REQUEST:
+      if (this->localStatus == 2) {
+        // Wyrzuć wysyłającego z grupy
+        this->myGroup[sender.id] = false;
+
+        // Potwierdź, że wysyłający może opuścić grupę
+        MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+
+        // Zwiększ mój zegar lamporta
+        *this->myLamport += 1;
+      } else if (this->localStatus == 3) {
+        if (this->mpiRank > sender.id) {
+          // Wyrzuć wysyłającego z grupy
+          this->myGroup[sender.id] = false;
+
+          // Potwierdź, że wysyłający może opuścić grupę
+          MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD, &mpiRequest);
+
+          // Zwiększ mój zegar lamporta
+          *this->myLamport += 1;
+
+          if (this->MyGroupEmpty()) {
+            // Do wszystkich oprocz siebie wysyłam żądanie o sekcję CLOSE
+            for (i = 0; i < this->mpiSize; i++) {
+              if (i != this->mpiRank) {
+                MPI_Isend(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD, &mpiRequest);
+                this->awaitingAnswerList.push_back(i);
+              }
+            }
+          }
+        }
+      }
     break;
 
   }
