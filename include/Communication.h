@@ -34,6 +34,7 @@ class Communication {
     int* myLamport;
     int mpiRank;
     int mpiSize;
+    int localStatus;
     bool waitingForArbiter;
     bool myGroup[maxNumParticipants];
     std::priority_queue<singleParticipantData> openRequestsQueue;
@@ -43,6 +44,7 @@ class Communication {
     MPI_Datatype mpi_participants_type;
 
     bool MyGroupEmpty();
+    bool tryToCreateGroup();
     void HandleMessageWithParticipants(struct participantsData* data);
     void HandleMessage(int tag, struct singleParticipantData* data);
 };

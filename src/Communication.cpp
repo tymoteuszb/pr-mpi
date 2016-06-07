@@ -18,6 +18,7 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
   this->myLamport = myLamport;
   this->mpiRank = mpiRank;
   this->mpiSize = mpiSize;
+  this->localStatus = *this->status;
   this->waitingForArbiter = false;
 
   // Specjalne typy wiadomości
@@ -47,7 +48,6 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
 }
 
 void Communication::run() {
-  int localStatus = *this->status;
   int i;
 
   MPI_Request sendRequest, recvRequestWithParticipants;
@@ -62,7 +62,7 @@ void Communication::run() {
   MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_PARTICIPANTS, MPI_COMM_WORLD, &recvRequestWithParticipants);
 
   while(1) {
-    if (*this->status != localStatus) {
+    if (*this->status != this->localStatus) {
 
       // Żądanie zawsze wygląda tak samo, zmienia się tag MPI
       int lamportCopy = *this->myLamport;
@@ -119,7 +119,7 @@ void Communication::run() {
 
       }
 
-      localStatus = *this->status;
+      this->localStatus = *this->status;
 
     } else { // Wiadomość do odbioru
 
@@ -169,10 +169,58 @@ bool Communication::MyGroupEmpty() {
   return false;
 }
 
+// #define TAG_OPEN_REQUEST 0
+// #define TAG_OPEN_RESPONSE 1
+// #define TAG_CLOSE_REQUEST 2
+// #define TAG_CLOSE_RESPONSE 3
+// #define TAG_DIE_REQUEST 4
+// #define TAG_DIE_RESPONSE 5
+// #define TAG_PARTICIPANTS 6
+
 void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
-  cout << "do obsłużenia wiadomość typu " << tag << endl;
+  struct singleParticipantData sender = *data;
+
+  switch(tag) {
+    case TAG_OPEN_RESPONSE:
+      // Usuń nadawcę z kolejki oczekiwań
+      this->awaitingAnswerList.remove(sender.id);
+
+      // Czy mogę wejść do sekcji?
+      if (this->awaitingAnswerList.empty() && this->openRequestsQueue.top().id == this->mpiRank) {
+        this->waitingForArbiter = !this->tryToCreateGroup();
+      }
+  }
 }
 
 void Communication::HandleMessageWithParticipants(struct participantsData* data) {
   cout << "do obsłużenia wiadomość typu 7" << endl;
+}
+
+bool Communication::tryToCreateGroup() {
+  int id;
+
+  // Czy mamy jeszcze arbitrów?
+  if (this->arbiters > 0) {
+
+    int lamportCopy = *this->myLamport;
+    struct participantsData myRequest;
+    myRequest.id = this->mpiRank;
+    myRequest.lamport = lamportCopy;
+
+    // Utwórz grupę
+    while (!this->openRequestsQueue.empty()) {
+      id = this->openRequestsQueue.top().id;
+      myRequest.participants[id] = true;
+      this->myGroup[id] = true;
+      this->openRequestsQueue.pop();
+    }
+
+    this->localStatus = 2;
+    *this->status = 2;
+    *this->myLamport += 1;
+    return true;
+
+  } else {
+    return false;
+  }
 }
