@@ -197,9 +197,22 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
     case TAG_OPEN_RESPONSE:
       // Usuń nadawcę z kolejki oczekiwań
       this->awaitingAnswerList.remove(sender.id);
+ 
 
       // Czy mogę wejść do sekcji?
       if (this->awaitingAnswerList.empty() && this->openRequestsQueue.top().id == this->mpiRank) {
+            std::priority_queue<singleParticipantData> tempQueue;
+  cout << this->mpiRank << " moja kolejka przed wejsciem do sekcji (OPEN RESP) : ";
+  while (!this->openRequestsQueue.empty()) {
+  cout << this->openRequestsQueue.top().id << " (" << this->openRequestsQueue.top().lamport << ") --- ";
+  tempQueue.push(this->openRequestsQueue.top());
+  this->openRequestsQueue.pop();
+  }
+  while (!tempQueue.empty()) {
+  this->openRequestsQueue.push(tempQueue.top());
+  tempQueue.pop();
+  }
+  cout << endl;
         this->waitingForArbiter = !this->tryToCreateGroup();
       }
     break;
@@ -253,6 +266,7 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
     break;
 
     case TAG_DIE_REQUEST:
+    cout << this->mpiRank << " nie jestem już w grupie z " << sender.id << endl;
       if (this->localStatus == 2) {
         // Wyrzuć wysyłającego z grupy
         this->myGroup[sender.id] = false;
@@ -296,6 +310,8 @@ void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
 
       // Zwolnij arbitra
       this->arbiters++;
+      
+      cout << this->mpiRank << "(" << *this->myLamport << ") zwolnił się arbiter, czy czekam? " <<  this->waitingForArbiter << endl;
 
       // Jeśli czekałem na arbitra, spróbuję jeszcze raz utworzyć grupę
       if (this->waitingForArbiter) {
@@ -327,6 +343,7 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
   // to sprawdzam czy jestem pierwszy na swojej kolejce żądań oraz czy nie oczekuję na żadną odpowiedź
   // jeżeli te warunki są spełnione - próbuję stworzyć nową grupę
   if (!participate && this->localStatus == 1 && this->openRequestsQueue.top().id == this->mpiRank && this->awaitingAnswerList.empty()) {
+  	cout << this->mpiRank << " (" << *this->myLamport << ")  probuje utworzy grupe" << endl;
     this->waitingForArbiter = !this->tryToCreateGroup();
   }
 
@@ -337,6 +354,9 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
   }
 
   this->arbiters -= 1;
+  //cout << this->mpiRank << " ( " << *(this->myLamport) << " )" << " arbiters: " << this->arbiters << endl;
+  
+  cout << this->mpiRank << " zwalniam sekcje krytyczna OPEN" << endl;
 }
 
 bool Communication::tryToCreateGroup() {
@@ -358,6 +378,15 @@ bool Communication::tryToCreateGroup() {
       this->myGroup[id] = true;
       this->openRequestsQueue.pop();
     }
+    
+    cout << "jest " << this->arbiters << " arbitrów" << endl;
+    cout << "skład grupy" << endl;
+    for (i = 0; i < 100; i++) {
+    	if (this->myGroup[i]) {
+    		cout << i << " ";
+    	}
+    }
+    cout << endl << this->mpiRank << " ( " << *(this->myLamport) << " )" << "utworzyłem grupę" << endl;
 
     // Wyślij wiadomość do wszystkich procesów
     for (i = 0; i < this->mpiSize; i++) {
@@ -366,6 +395,8 @@ bool Communication::tryToCreateGroup() {
         MPI_Send(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD);
       }
     }
+    
+    this->arbiters -= 1;
 
     this->localStatus = 2;
     *this->status = 2;
@@ -373,6 +404,7 @@ bool Communication::tryToCreateGroup() {
     return true;
 
   } else {
+  cout << this->mpiRank << " próbowałem utworzyć grupę, ale brakuje arbitrów" << endl;
     return false;
   }
 }
@@ -397,6 +429,13 @@ void Communication::resolveGroup() {
       MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD);
     }
   }
+  
+  cout << this->mpiRank << " wyczyscilem grupe " << endl;
+  
+  // Wyczyść skład grupy
+	for (i = 0; i < this->mpiSize; i++) {
+	  this->myGroup[i] = false;
+	}
 
   // Zwiększ zegar lamporta, wróć do początkowego statusu
   this->localStatus = 0;

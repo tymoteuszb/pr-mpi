@@ -16,7 +16,7 @@ struct singleParticipantData {
     if(lamport == other.lamport)
       return id < other.id;
     else
-      return lamport < other.lamport;
+      return lamport > other.lamport;
   }
 };
 
