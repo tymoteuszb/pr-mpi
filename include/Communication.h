@@ -40,16 +40,20 @@ class Communication {
     int localStatus;
     bool waitingForArbiter;
     bool myGroup[maxNumParticipants];
+    int outdated[maxNumParticipants];
     std::priority_queue<singleParticipantData> openRequestsQueue;
     std::priority_queue<singleParticipantData> closeRequestsQueue;
     std::list<int> awaitingAnswerList;
     MPI_Datatype mpi_single_participant_type;
     MPI_Datatype mpi_participants_type;
 
+	void printMe();
     bool MyGroupEmpty();
     bool tryToCreateGroup();
     void resolveGroup();
-    void HandleMessageWithParticipants(struct participantsData* data);
+    void broadcastToAll(int tag);
+	void broadcastToMyGroup(int tag);
+	void HandleMessageWithParticipants(struct participantsData* data);
     void HandleMessage(int tag, struct singleParticipantData* data);
 };
 
