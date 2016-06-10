@@ -8,11 +8,11 @@
 
 const int maxNumParticipants = 100;
 
-struct singleParticipantData {
+struct requestData {
   int id;
   int lamport;
 
-  bool operator<(const singleParticipantData& other) const {
+  bool operator<(const requestData& other) const {
     if(lamport == other.lamport)
       return id < other.id;
     else
@@ -20,7 +20,7 @@ struct singleParticipantData {
   }
 };
 
-struct participantsData {
+struct groupInfoData {
   int id;
   int lamport;
   bool participants[maxNumParticipants] = {false};
@@ -38,23 +38,33 @@ class Communication {
     int mpiRank;
     int mpiSize;
     int localStatus;
-    bool waitingForArbiter;
+    int timeOfDeath;
+	bool waitingForArbiter;
+	bool waitingForParticipants;
     bool myGroup[maxNumParticipants];
     int outdated[maxNumParticipants];
-    std::priority_queue<singleParticipantData> openRequestsQueue;
-    std::priority_queue<singleParticipantData> closeRequestsQueue;
+    std::priority_queue<requestData> openRequestsQueue;
     std::list<int> awaitingAnswerList;
-    MPI_Datatype mpi_single_participant_type;
-    MPI_Datatype mpi_participants_type;
+    MPI_Datatype mpi_request_type;
+    MPI_Datatype mpi_group_info_type;
 
 	void printMe();
+	void printMyGroup();
+	void printQueue();
     bool MyGroupEmpty();
     bool tryToCreateGroup();
     void resolveGroup();
     void broadcastToAll(int tag);
 	void broadcastToMyGroup(int tag);
-	void HandleMessageWithParticipants(struct participantsData* data);
-    void HandleMessage(int tag, struct singleParticipantData* data);
+	void sendMessage(int sendTo, int tag);
+	void addAllToAwaitingAnswerList();
+	void addMyGroupToAwaitingAnswerList();
+	bool firstOnQueue();
+	void removeParticipantsFromQueue(bool participants[]);
+	void determineGroupMembers();
+	bool inMyGroup(int id);
+	void HandleMessageWithParticipants(struct groupInfoData* data);
+    void HandleMessage(int tag, struct requestData* data);
 };
 
 #endif

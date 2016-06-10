@@ -2,14 +2,17 @@
 #include <iostream>
 #include <unistd.h>
 
-#define TAG_OPEN_REQUEST 0
-#define TAG_OPEN_RESPONSE 1
-#define TAG_CLOSE_REQUEST 2
-#define TAG_CLOSE_RESPONSE 3
-#define TAG_DIE_REQUEST 4
-#define TAG_DIE_RESPONSE 5
-#define TAG_CLOSE_FREE 6
-#define TAG_OPEN_FREE 7
+#define TAG_START_REQUEST 0
+#define TAG_START_RESPONSE 1
+#define TAG_DIE_REQUEST 2
+#define TAG_DIE_RESPONSE 3
+#define TAG_GROUP_CREATED 5
+#define TAG_GROUP_RESOLVED 4
+
+#define PASSIVE 10
+#define WAITING 11
+#define DRINKING 12
+#define DEAD 13
 
 using namespace std;
 
@@ -31,143 +34,127 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
 	// Specjalne typy wiadomości
 
 	// Typ dla zwykłego żądania
-	int participant_blocklengths[2] = {1, 1};
-	MPI_Datatype participant_types[2] = {MPI::INT, MPI::INT};
-	MPI_Aint participant_offsets[2];
+	int request_blocklengths[2] = {1, 1};
+	MPI_Datatype request_types[2] = {MPI::INT, MPI::INT};
+	MPI_Aint request_offsets[2];
 
-	participant_offsets[0] = offsetof(singleParticipantData, id);
-	participant_offsets[1] = offsetof(singleParticipantData, lamport);
+	request_offsets[0] = offsetof(requestData, id);
+	request_offsets[1] = offsetof(requestData, lamport);
 
-	MPI_Type_create_struct(2, participant_blocklengths, participant_offsets, participant_types, &this->mpi_single_participant_type);
-	MPI_Type_commit(&this->mpi_single_participant_type);
+	MPI_Type_create_struct(2, request_blocklengths, request_offsets, request_types, &this->mpi_request_type);
+	MPI_Type_commit(&this->mpi_request_type);
 
 	// Typ dla żądania wraz z listą uczestników
-	int participants_blocklengths[3] = {1, 1, maxNumParticipants};
-	MPI_Datatype participants_types[3] = {MPI::INT, MPI::INT, MPI::BOOL};
-	MPI_Aint participants_offsets[3];
+	int groupInfo_blocklengths[3] = {1, 1, maxNumParticipants};
+	MPI_Datatype groupInfo_types[3] = {MPI::INT, MPI::INT, MPI::BOOL};
+	MPI_Aint groupInfo_offsets[3];
 
-	participants_offsets[0] = offsetof(participantsData, id);
-	participants_offsets[1] = offsetof(participantsData, lamport);
-	participants_offsets[2] = offsetof(participantsData, participants);
+	groupInfo_offsets[0] = offsetof(groupInfoData, id);
+	groupInfo_offsets[1] = offsetof(groupInfoData, lamport);
+	groupInfo_offsets[2] = offsetof(groupInfoData, participants);
 
-	MPI_Type_create_struct(3, participants_blocklengths, participants_offsets, participants_types, &this->mpi_participants_type);
-	MPI_Type_commit(&this->mpi_participants_type);
+	MPI_Type_create_struct(3, groupInfo_blocklengths, groupInfo_offsets, groupInfo_types, &this->mpi_group_info_type);
+	MPI_Type_commit(&this->mpi_group_info_type);
 }
 
 void Communication::run() {
 	int i;
-
-	MPI_Request sendRequest, recvRequestWithParticipants;
-	MPI_Request recvRequests[7];
-	struct singleParticipantData recvData[7];
-	struct participantsData recvDataWithParticipants;
-
-	char procname[1000];
-	int a;
-	MPI_Get_processor_name(procname, &a);
-
+	MPI_Request recvGroupInfo;
+	MPI_Request recvRequests[5];
+	struct requestData recvRequestData[5];
+	struct groupInfoData recvGroupInfoData;
 
 	// Ustaw odbieranie wiadomości każdego typu
-	for (i = 0; i < 7; i++) {
-		MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
-	}
-	MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_OPEN_FREE, MPI_COMM_WORLD, &recvRequestWithParticipants);
+	for (i = 0; i < 5; i++)
+		MPI_Irecv(&recvRequestData[i], 1, this->mpi_request_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
 
-	while(1) {
-		if (*this->status != this->localStatus) {
+	MPI_Irecv(&recvGroupInfoData, 1, this->mpi_group_info_type, MPI_ANY_SOURCE, TAG_GROUP_CREATED, MPI_COMM_WORLD, &recvGroupInfo);
 
-			// Żądanie zawsze wygląda tak samo, zmienia się tag MPI
-			int lamportCopy = *this->myLamport;
-			struct singleParticipantData myRequest;
-			myRequest.id = this->mpiRank;
-			myRequest.lamport = lamportCopy;
 
-			if (*this->status == 1) {
-				// Wyślij żądanie do wszystkich procesów (sekcja OPEN), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
-				for (i = 0; i < this->mpiSize; i++) {
-					if (i != this->mpiRank) {
-						//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN do " << i << endl;
-						MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_OPEN_REQUEST, MPI_COMM_WORLD);
-						this->awaitingAnswerList.push_back(i);
-					}
-				}
-
+	while(1) 
+	{
+		//Jeżeli wątek logiczny zgłasza, że zmienił się jego stan
+		if (*this->status != this->localStatus) 
+		{
+			//Student wlaśnie postanowił, że chce wziąć udział w zawodach
+			if (*this->status == 1) 
+			{
+				// Wyślij żądanie do wszystkich procesów (informujące że chcę zacząć pić czyli zająć arbitra) 
+				this->broadcastToAll(TAG_START_REQUEST);
+				//Dodaj wszystkie procesy na liste procesów, od ktorych oczekuje odpowiedzi (potwierdzenia przyjęcia żądania)
+				this->addAllToAwaitingAnswerList();
 				// Dodaj moje żądanie na lokalną kolejkę żądań
-				this->openRequestsQueue.push(myRequest);
-
-			} else if (*this->status == 3) { // Zgłaszam, że padłem
-				// Czy zostałem jako jedyny w grupie?
-				if (this->MyGroupEmpty()) {
-
-					this->closeRequestsQueue.push(myRequest);
-					cout << this->mpiRank << " ( " << *this->myLamport << " ) bede rozwiazywac grupe, wszyscy padli i jestem w niej sam. " << endl;
-					// Wyślij żądanie do wszystkich procesów (sekcja CLOSE), wstaw wszystkie IDki procesów do mojego awaitingAnswerList
-					for (i = 0; i < this->mpiSize; i++) {
-						if (i != this->mpiRank) {
-							//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE do " << i << endl;
-							MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD);
-							this->awaitingAnswerList.push_back(i);
-						}
-					}
-
+			} 
+			//Student właśnie padł, i chce opuścić grupę
+			else if (*this->status == 3) 
+			{ 
+				//Jeżeli jest w niej sam, to ją rozwiązuje
+				if (this->MyGroupEmpty()) 
+				{
+					cout << this->mpiRank << " ( " << *this->myLamport << " ) wszyscy padli i jestem sam w grupie, rozwiazuje ja i zwalniam arbitra. " << endl;
+					//Poinformuj wszystkich, ze rozwiazuje grupę i zwalniam arbitra
+					this->broadcastToAll(TAG_GROUP_RESOLVED);
+					//Zwalniam arbitra
+					this->arbiters += 1;
+					//Informuje watek logiczny ze nie uczestniczy juz w zawodach
 					*this->status = 0;
-
-				} else {
-
+				} 
+				//Jeżeli nie jestem sam w grupie, to informuje pozostałych, że chcę ją opuścić
+				else 
+				{
+					//Zapamietaj, kiedy padles
+					this->timeOfDeath = *this->myLamport;
 					// Wyślij do wszystkich członków grupy (tych co w niej nadal są), że chcę opuścić grupę
-					for (i = 0; i < maxNumParticipants; i++) {
-						if (i != this->mpiRank && this->myGroup[i] == true) {
-							//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość DIE do " << i << endl;
-							MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_DIE_REQUEST, MPI_COMM_WORLD);
-							this->awaitingAnswerList.push_back(i);
-						}
-					}
-
-					cout << this->mpiRank << " ( " << *this->myLamport << " ) informuje ";
+					this->broadcastToMyGroup(TAG_DIE_REQUEST);
+					//Dodaj wszystkie procesy na liste procesów, od ktorych oczekuje odpowiedzi (potwierdzenia przyjęcia żądania)
+					this->addMyGroupToAwaitingAnswerList();
+					this->printMe(); cout << "informuje ";
 					for(list<int>::iterator i = awaitingAnswerList.begin(); i!=awaitingAnswerList.end(); i++)
-					{
-						cout << *i << " ";
-					}
+						cout << *i << " "; 
 					cout<<"ze chce opuscic grupe." << endl;
 
 				}
 
 			}
 
-			// Zwiększ mój zegar Lamporta
-			*this->myLamport += 1;
+			//Zaktualizuj status studenta, zeby wiedziec, że zmiana została już obsłużona
 			this->localStatus = *this->status;
 
-		} else { // Wiadomość do odbioru
-
+		} 
+		//Jezeli wątek logiczny nie zgłosił zmiany stanu studenta, to sprawdzamy, czy nie ma wiadomości do obsłużenia
+		else 
+		{
 			int ready = 0;
 			bool anyready = false;
 
 			// Sprawdź czy któryś z typów jest gotowy do odbioru
-			for (i = 0; i < 7; i++) {
-				//cout << "[" << this->mpiRank << "] " << " sprawdzam wiadomości typu " << i << " status: " << ready << endl;
+			for (i = 0; i < 5; i++) 
+			{
 				MPI_Test(&recvRequests[i], &ready, MPI_STATUS_IGNORE);
-				if (ready) {
+				if (ready) 
+				{
 					// Ustaw mój zegar Lamporta
-					*this->myLamport = max(recvData[i].lamport, *this->myLamport) + 1;
+					*this->myLamport = max(recvRequestData[i].lamport, *this->myLamport) + 1;
 
 					// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
-					this->HandleMessage(i, &recvData[i]);
+					this->HandleMessage(i, &recvRequestData[i]);
 					anyready = true;
-					MPI_Irecv(&recvData[i], 1, this->mpi_single_participant_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
+					MPI_Irecv(&recvRequestData[i], 1, this->mpi_request_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
 				}
 			}
 
 			// Sprawdź też dla gupiego typu z dodatkową tablicą
-			MPI_Test(&recvRequestWithParticipants, &ready, MPI_STATUS_IGNORE);
-			if (ready) {
+			MPI_Test(&recvGroupInfo, &ready, MPI_STATUS_IGNORE);
+			if (ready) 
+			{
+	
 				// Ustaw mój zegar Lamporta
-				*this->myLamport = max(recvDataWithParticipants.lamport, *this->myLamport) + 1;
+				*this->myLamport = max(recvGroupInfoData.lamport, *this->myLamport) + 1;
 
 				// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
-				this->HandleMessageWithParticipants(&recvDataWithParticipants);
+				this->HandleMessageWithParticipants(&recvGroupInfoData);
 				anyready = true;
-				MPI_Irecv(&recvDataWithParticipants, 1, this->mpi_participants_type, MPI_ANY_SOURCE, TAG_OPEN_FREE, MPI_COMM_WORLD, &recvRequestWithParticipants);
+				MPI_Irecv(&recvGroupInfoData, 1, this->mpi_group_info_type, MPI_ANY_SOURCE, TAG_GROUP_CREATED, MPI_COMM_WORLD, &recvGroupInfo);
 			}
 
 			if (!anyready) {
@@ -178,202 +165,141 @@ void Communication::run() {
 	}
 }
 
-Communication::~Communication() {
-	MPI_Type_free(&this->mpi_single_participant_type);
-}
 
-bool Communication::MyGroupEmpty() {
-	int i;
-
-	for (i = 0; i < maxNumParticipants; i++) {
-		if (i != this->mpiRank && this->myGroup[i] == true) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-void Communication::HandleMessage(int tag, struct singleParticipantData* data) {
-	struct singleParticipantData sender = *data;
-
-	int i;
-
-	MPI_Request mpiRequest;
-
-	int lamportCopy = *this->myLamport;
-	struct singleParticipantData myRequest;
-	myRequest.id = this->mpiRank;
-	myRequest.lamport = lamportCopy;
+void Communication::HandleMessage(int tag, struct requestData* data) {
+	struct requestData sender = *data;
 
 	switch(tag) {
 
-		case TAG_OPEN_RESPONSE:
+		//Potwierdzenie od innego procesu, że otrzymał moje żądanie do sekcji
+		case TAG_START_RESPONSE:
 			// Usuń nadawcę z kolejki oczekiwań
 			this->awaitingAnswerList.remove(sender.id);
-
-			// Czy chce i czy mogę wejść do sekcji?
-			if (this->localStatus == 1 && this->awaitingAnswerList.empty() && this->openRequestsQueue.top().id == this->mpiRank) {
-				std::priority_queue<singleParticipantData> tempQueue;
-				// cout << this->mpiRank << "na gorze kolejki (rozmiar " << this->openRequestsQueue.size() << " ) request (" << this->openRequestsQueue.top().lamport << ", " << this->openRequestsQueue.top().id << ")" << endl;
-				cout << this->mpiRank << " ( "<< *this->myLamport << " ) zaraz sprobuje utworzyc grupe,  moja kolejka przed wejsciem do sekcji to : ";
-				while (!this->openRequestsQueue.empty()) {
-					cout << this->openRequestsQueue.top().id << " (" << this->openRequestsQueue.top().lamport << ") - ";
-					tempQueue.push(this->openRequestsQueue.top());
-					this->openRequestsQueue.pop();
+			//Jeżeli chcę i mogę wejść do sekcji po arbitra, to wchodzę i próbuję utworzyć grupę
+			if (this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue()) 
+			{
+				//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
+				if (this->openRequestsQueue.size() >= 2)
+				{
+					this->printMe(); cout << "zaraz sprobuje utworzyc grupe,  moja kolejka przed wejsciem do sekcji to : "; this->printQueue(); cout << endl;
+					this->waitingForArbiter = !this->tryToCreateGroup();
 				}
-				while (!tempQueue.empty()) {
-					this->openRequestsQueue.push(tempQueue.top());
-					tempQueue.pop();
+				//Jeżeli tylko ja chcę pić, to muszę poczekać na więcej chętnych przed utworzeniem grupy
+				else
+				{
+					this->printMe(); cout << "tylko ja chcę pić, muszę poczekać na więcej chętnych." << endl;
+					this->waitingForParticipants = true;
 				}
-				cout << endl;
-				this->waitingForArbiter = !this->tryToCreateGroup();
 			}
 			break;
 
-
-
-
-		case TAG_CLOSE_RESPONSE:
-			// Usuń nadawcę z kolejki oczekiwań
-			this->awaitingAnswerList.remove(sender.id);
-
-			//cout << this->mpiRank << " Otrzymalem zgoda na CLOSE od " << sender.id << ", czkeam na " << this->awaitingAnswerList.size() << "odpowiedzi, ";
-			//cout << "na gorze kolejki ("<< this->closeRequestsQueue.top().lamport << ", " << this->closeRequestsQueue.top().id << "), warunek rozwiazywania grupy: ";
-			//cout << (this->awaitingAnswerList.empty() && !this->closeRequestsQueue.empty() && this->closeRequestsQueue.top().id == this->mpiRank) << endl;
-
-			// Czy mogę wejść do sekcji?      
-			if (this->awaitingAnswerList.empty() && !this->closeRequestsQueue.empty() && this->closeRequestsQueue.top().id == this->mpiRank) {
-				this->resolveGroup();
-			}
-			break;
-
-
-
-
-		case TAG_OPEN_REQUEST:
-			// Dodaj do lokalnej kolejki zadanie nadawcy, o ile nie jest przedawnione (wiemy juz, ze nadwaca po wyslaniu wiadomosci zostal przydzielony do grupy i zrezygnowal z sekcji)
-			if (sender.lamport >= this->outdated[sender.id]){
-				cout<< this->mpiRank << " ( " << *this->myLamport << " ) proces " << sender.id << " ( " << sender.lamport << " ) chce wziac udzial w zawodach" << endl;
+		//Żądanie innego procesu do sekcji po arbitra
+		case TAG_START_REQUEST:
+			// Dodaj do lokalnej kolejki żądanie nadawcy, o ile nie jest przedawnione (czyli gdy wiemy juz, ze nadwaca po wyslaniu wiadomosci zostal przydzielony do grupy i zrezygnowal z sekcji)
+			if (sender.lamport >= this->outdated[sender.id])
+			{
+				//Dodaj nowe żądanie na kolejkę
 				this->openRequestsQueue.push(sender);
+				//Jeżeli czekałem z utworzeniem grupy na kolejnego chętnego, to spróbuję utworzyć grupę
+				if (this->waitingForParticipants)
+				{
+					this->waitingForParticipants = false;
+					this->printMe(); cout << "jest juz kolejny chętny, próbuję utworzyć grupę!" << endl;
+					this->waitingForArbiter = !this->tryToCreateGroup();
+				}
+				//jeżeli nie, to wysyłam potwierdzenie odebrania żądania
+				else
+				{
+					//this->printMe(); cout << "proces " << sender.id << " ( " << sender.lamport << " ) chce wziac udzial w zawodach" << endl;
+					this->sendMessage(sender.id, TAG_START_RESPONSE);
+				}
 			}
 			else
-				cout << this->mpiRank << " ( " << *this->myLamport << " ) otrzymalem przedawnionego requesta ("<<sender.lamport<<" < " << this->outdated[sender.id]  <<") informujacego o checi wziecia udzialu od " << sender.id << endl;
-
-			// Odpowiedz swoim znacznikiem czasowym
-			MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_OPEN_RESPONSE, MPI_COMM_WORLD);
-
-			// Zwiększ mój zegar lamporta
-			*this->myLamport += 1;
+			{
+				this->printMe(); cout << "otrzymalem przedawnionego requesta ("<<sender.lamport<<" < " << this->outdated[sender.id]  <<") informujacego o checi wziecia udzialu od " << sender.id << endl;
+			}
+			//jezeli przedawniony to nie odsylam nic - czy na pewno?
+			
 			break;
 
-
-
-
-		case TAG_CLOSE_REQUEST:
-			// Dodaj do lokalnej kolejki nadawcę
-			this->closeRequestsQueue.push(sender);
-
-			// Odpowiedz swoim znacznikiem czasowym
-			MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_CLOSE_RESPONSE, MPI_COMM_WORLD);
-
-			// Zwiększ mój zegar lamporta
-			*this->myLamport += 1;
-			break;
-
-
-
-
+		//Zgoda od innego procesu na opuszczenie grupy
 		case TAG_DIE_RESPONSE:
-			if (this->myGroup[this->mpiRank] && this->myGroup[sender.id]) {
-				// Już jestem pewien, że mogę opuścić grupę
+			//Otrzymałem zgode na opuszczenie grupy, sprawdzam czy nadal jestem z nadwaca w grupie (mogłem już ją wcześniej opuścić)
+			if (this->myGroup[this->mpiRank] && this->myGroup[sender.id]) 
+			{
+				this->printMe(); cout << "proces " << sender.id << " pozwolił mi opuścić grupę. " << endl;
+				// Już jestem pewien, że mogę opuścić grupę, nie muszę czekać na inne zgody
 				this->awaitingAnswerList.clear();
-
-				// Zmień status lokalny i współdzielony
+				// Wyczyść skład grupy
+				for (int i = 0; i < this->mpiSize; i++) 
+					this->myGroup[i] = false;
+				//Informuje watek logiczny ze nie uczestniczy juz w zawodach
 				this->localStatus = 0;
 				*this->status = 0;
-
-				// Wyczyść skład grupy
-				for (i = 0; i < this->mpiSize; i++) {
-					this->myGroup[i] = false;
-				}
 			}
 			break;
 
-
-
-
+		//Prośba innego procesu o zgodę, aby mógł opuścić grupę
 		case TAG_DIE_REQUEST:
-
-			if (this->localStatus == 2) {
+			//Jeżeli nadal piję i jestem z tym procesem w grupie
+			if (this->localStatus == 2 && inMyGroup(sender.id)) 
+			{	
+				//Wyslij zgodę na opuszczenie grupy
+				this->sendMessage(sender.id, TAG_DIE_RESPONSE);
 				// Wyrzuć wysyłającego z grupy
 				this->myGroup[sender.id] = false;
-				cout << this->mpiRank << " ( " << *this->myLamport << " ) ja wciaz pije, a moja grupe opuscil " << sender.id << endl;	
-				// Potwierdź, że wysyłający może opuścić grupę
-				MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD);
-
-				// Zwiększ mój zegar lamporta
-				*this->myLamport += 1;
+				//this->printMe(); cout << "wysylam zgodę na opuszczenie grupy procesowi " << sender.id << endl;
 			} 
-
-			else if (this->localStatus == 3) {
-				if (this->mpiRank > sender.id) {
-					cout << this->mpiRank << " ( " << *this->myLamport << " ) padlem juz, a moja grupe opuscil " << sender.id;
+			//Jeżeli padłem już ale nadal jestem z tym procesem w grupie
+			else if (this->localStatus == 3 && inMyGroup(sender.id)) 
+			{
+				//Jeżeli oboje padliśmy, to odpowiedzialność za zwolnienie arbitra przypada na tego, który później padł, jeżeli padli w tym samym czasie to decyduje mpiRank
+				if (this->timeOfDeath > sender.lamport || (this->timeOfDeath == sender.lamport && this->mpiRank > sender.id))
+				{
+					//Wyslij zgodę na opuszczenie grupy
+					this->sendMessage(sender.id, TAG_DIE_RESPONSE);
 					// Wyrzuć wysyłającego z grupy
 					this->myGroup[sender.id] = false;
-					//cout << "[ " << this->mpiRank << "] wywaliłem " << sender.id << endl;
-
-					// Potwierdź, że wysyłający może opuścić grupę
-					MPI_Send(&myRequest, 1, this->mpi_single_participant_type, sender.id, TAG_DIE_RESPONSE, MPI_COMM_WORLD);
-
-					// Zwiększ mój zegar lamporta
-					*this->myLamport += 1;
-
-					cout << ", czy zostalem sam w grupie? " << this->MyGroupEmpty() << endl;
-					if (this->MyGroupEmpty()) {
-						cout<< this->mpiRank << " ( " << *this->myLamport << " ) pozwolilem pozostalym opuscic grupe, zostalem w niej sam, zaraz ja rozwiaze." << endl;
+					//this->printMe(); cout << "wysylam zgodę na opszczenie grupy procesowi " << sender.id << ", czy zostalem sam w grupie? " << this->MyGroupEmpty() << endl;
+					//Jeżeli zostałem sam w grupie to rozwiazuję ją i zwalniam arbitra
+					if (this->MyGroupEmpty()) 
+					{
+						this->printMe(); cout << "pozwolilem pozostalym opuscic grupe, zostalem w niej sam, rozwiazuję ją i zwalniam arbitra" << endl;
+						//Poinformuj wszystkich, ze rozwiazuje grupę i zwalniam arbitra
+						this->broadcastToAll(TAG_GROUP_RESOLVED);
+						//W tym momencie na pewno nie czekam na żadne odpowiedzi/potwierdzenia
 						this->awaitingAnswerList.clear();
-						this->closeRequestsQueue.push(myRequest);
-						// Do wszystkich oprocz siebie wysyłam żądanie o sekcję CLOSE
-						for (i = 0; i < this->mpiSize; i++) {
-							if (i != this->mpiRank) {
-								//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE REQUEST do " << i << endl;
-								MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_REQUEST, MPI_COMM_WORLD);
-								this->awaitingAnswerList.push_back(i);
-							}
-						}
+						//Zwalniam arbitra
+						this->arbiters += 1;
+						//Informuje watek logiczny ze nie uczestniczy juz w zawodach	
+						this->localStatus = 0;
+						*this->status = 0;
 					}
 				}
 				else
-					cout << this->mpiRank << " ( " << *this->myLamport << " ) padlem juz, moja grupe chce opuscic " << sender.id << " ale ja mu nie wysylam zgody!" << endl;
+				{
+					//this->printMe(); cout << "padlem juz, moja grupe chce opuscic " << sender.id << " ale ja mu nie wysylam zgody!" << endl;
+				}
 			}
 			break;
 
 
-
-
-		case TAG_CLOSE_FREE:
-			// Usuń nadawcę z początku kolejki oczekujących na sekcję krytyczną CLOSE
-			//cout << this->mpiRank << " ( " << *this->myLamport << " ) wyrzucam request (" << closeRequestsQueue.top().lamport << ", " << closeRequestsQueue.top().id << ") z kolejki. " << endl;
-			this->closeRequestsQueue.pop();
-
-			// Zwolnij arbitra
-			this->arbiters++;
-
-			cout << this->mpiRank << " ( " << *this->myLamport << " ) proces " << sender.id << " zwolnil arbitera, czy czekam? " <<  this->waitingForArbiter << endl;
-
+		//Wiadomość, że inny proces zwolnił arbitra (bo rozwiązał grupę)
+		case TAG_GROUP_RESOLVED:
+			//Rozwiazano grupę, jest o 1 arbitra więcej
+			this->arbiters +=1;
+			this->printMe(); cout << "proces " << sender.id << " zwolnil arbitra jest ich teraz " <<  this->arbiters << " dostepnych." << endl;
 			// Jeśli czekałem na arbitra, spróbuję jeszcze raz utworzyć grupę
-			if (this->waitingForArbiter) {
+			if (this->waitingForArbiter) 
 				this->waitingForArbiter = !this->tryToCreateGroup();
-			}
 			break;
 
 	}
 }
 
 //Funkcja obslugi wiadomosci informujacej, ze inny proces utworzyl grupe
-void Communication::HandleMessageWithParticipants(struct participantsData* data) {
-	struct participantsData sender = *data;
+void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
+	struct groupInfoData sender = *data;
 	//int tempId = this->openRequestsQueue.top().id;
 	bool participate = sender.participants[this->mpiRank];
 
@@ -382,18 +308,16 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
 	if (participate) {
 		this->localStatus = 2;
 		*this->status = 2; 
+		//Skoro właśnie dowiedziałem się, że już jestem w grupie, to nie czekam już na żadne odpowiedzi
+		this->awaitingAnswerList.clear();
 	}
 
 	// Dla wszystkich członków nowo powstałej grupy usuń ich żądania dostępu do sekcji krytycznej OPEN
-	while(!this->openRequestsQueue.empty() && sender.participants[ this->openRequestsQueue.top().id ] )
-	{
-		this->openRequestsQueue.pop();
-		//tempId = this->openRequestsQueue.top().id;
-	}
+	this->removeParticipantsFromQueue(sender.participants);
 
-	cout << this->mpiRank << " ( " <<*this->myLamport << " ) proces " << sender.id << " utworzyl grupe o skladzie: ";
+	this->printMe(); cout << "proces " << sender.id << " utworzyl grupe o skladzie: ";
 	// Dodatkowo, jeśli sam jestem w tej grupie, dodaję wszystkich członków do mojej lokalnej zmiennej określającej grupę	
-	for(int i = 0; i < 100; i++)
+	for(int i = 0; i < maxNumParticipants; i++)
 	{
 		if(sender.participants[i])
 		{
@@ -405,106 +329,62 @@ void Communication::HandleMessageWithParticipants(struct participantsData* data)
 	}
 
 	if(participate)
-		cout << ", jestem w niej! (moj status: " << this->localStatus << ")." << endl;
-	else
-	{
-		cout << ", nie ma mnie w niej. (moj status: " << this->localStatus << ")." << endl;
-	}
+		cout << ", jestem w niej!";
+    cout << endl;
+	//else
+	//	cout << ", nie ma mnie w niej. (moj status: " << this->localStatus << ")." << endl;
 
 	this->arbiters -= 1;
 
 	// Jeżeli nie jestem w nowo utworzonej grupie, ale chcę wziąć udział w zawodach
 	// to sprawdzam czy jestem pierwszy na swojej kolejce żądań oraz czy nie oczekuję na żadną odpowiedź
 	// jeżeli te warunki są spełnione - próbuję stworzyć nową grupę
-	if (!participate && this->localStatus == 1 && this->awaitingAnswerList.empty() && this->openRequestsQueue.top().id == this->mpiRank) {
-		cout << this->mpiRank << " (" << *this->myLamport << ")  nie zostalem przydzielony do nowo utworzonej grupy, probuje utworzyc nowa." << endl;
+	if (!participate && this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue())
+   	{		
+		//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
+		if (this->openRequestsQueue.size() >= 2)
+		{
+			this->printMe(); cout << "nie zostalem przydzielony do nowej grupy, zaraz sprobuje utworzyc kolejną,  moja kolejka przed wejsciem do sekcji to : "; this->printQueue(); cout << endl;
+			this->waitingForArbiter = !this->tryToCreateGroup();
+		}
+		//Jeżeli tylko ja chcę pić, to muszę poczekać na więcej chętnych przed utworzeniem grupy
+		else
+		{
+			this->printMe(); cout << "nie zostałem przydzielony do nowej grupy, ale tylko ja chcę pić, muszę poczekać na więcej chętnych." << endl;
+			this->waitingForParticipants = true;
+		}
+			
+			
+			cout << this->mpiRank << " (" << *this->myLamport << ")  nie zostalem przydzielony do nowo utworzonej grupy, probuje utworzyc nowa." << endl;
 		this->waitingForArbiter = !this->tryToCreateGroup();
 	}
 	//cout << this->mpiRank << " ( " << *(this->myLamport) << " )" << " arbiters: " << this->arbiters << endl;
 }
 
-bool Communication::tryToCreateGroup() {
-	int id, i;
-	MPI_Request mpiRequest;
+bool Communication::tryToCreateGroup() 
+{
+	int id;
 
 	// Czy mamy jeszcze arbitrów?
-	if (this->arbiters > 0) {
-
-		int lamportCopy = *this->myLamport;
-		struct participantsData myRequest;
-		myRequest.id = this->mpiRank;
-		myRequest.lamport = lamportCopy;
-
-		// Utwórz grupę
-		while (!this->openRequestsQueue.empty()) {
-			id = this->openRequestsQueue.top().id;
-			myRequest.participants[id] = true;
-			this->myGroup[id] = true;
-			this->openRequestsQueue.pop();
-		}
-
-		cout << this->mpiRank << " ( " << *(this->myLamport) << " ) jest " << this->arbiters << " arbitrow, tworze grupe o skladzie: ";
-		for (i = 0; i < 100; i++) 
-			if (this->myGroup[i])
-				cout << i << " ";   	
-		cout << endl;
-
-		// Wyślij wiadomość do wszystkich procesów
-		for (i = 0; i < this->mpiSize; i++) {
-			if (i != this->mpiRank) {
-				//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość OPEN FREE do " << i << endl;
-				MPI_Send(&myRequest, 1, this->mpi_participants_type, i, TAG_OPEN_FREE, MPI_COMM_WORLD);
-			}
-		}
-
+	if (this->arbiters > 0) 
+	{	
+		//Ustal kto jest członkiem grupy (wszyscy, ktorych żądania są na kolejce, łącznie ze mną)
+		this->determineGroupMembers();
+		this->printMe(); cout << "jest " << this->arbiters << " arbitrow, tworze grupe o skladzie: "; this->printMyGroup(); cout << endl;
+		//Wyslij do wszystkich, ze utworzylem grupe wraz z informacją, kto jest w jej składzie
+		this->broadcastToAll(TAG_GROUP_CREATED);
+		//Zajmij jednego arbitra
 		this->arbiters -= 1;
-
+		//Poinformuj wątek logiczny że został przydzielony do grupy i moze zacząć pić
 		this->localStatus = 2;
 		*this->status = 2;
-		*this->myLamport += 1;
 		return true;
-
-	} else {
-		cout << this->mpiRank << " ( " << *this->myLamport << " ) próbowałem utworzyć grupę, ale brakuje arbitrów." << endl;
+	} 
+	else 
+	{
+		this->printMe(); cout << "próbowałem utworzyć grupę, ale brakuje arbitrów." << endl;
 		return false;
 	}
-}
-
-void Communication::resolveGroup() {
-	int i;
-	MPI_Request mpiRequest;
-
-
-	this->closeRequestsQueue.pop();
-
-	// Oddajemy arbitra
-	this->arbiters += 1;
-
-	// Przygotuj wiadomość
-	int lamportCopy = *this->myLamport;
-	struct singleParticipantData myRequest;
-	myRequest.id = this->mpiRank;
-	myRequest.lamport = lamportCopy;
-
-	// Do wszystkich procesów wysyłam wiadomość, że zwalniam sekcję krytyczną #b
-	for (i = 0; i < this->mpiSize; i++) {
-		if (i != this->mpiRank) {
-			//cout << "[" << this->mpiRank << "] " << " wysyłam wiadomość CLOSE_FREE do " << i << endl;
-			MPI_Send(&myRequest, 1, this->mpi_single_participant_type, i, TAG_CLOSE_FREE, MPI_COMM_WORLD);
-		}
-	}
-
-	cout << this->mpiRank << " ( " << *this->myLamport << " ) rozwiazalem grupe i zwolnilem arbitra." << endl;
-
-	// Wyczyść skład grupy
-	for (i = 0; i < this->mpiSize; i++) {
-		this->myGroup[i] = false;
-	}
-
-	// Zwiększ zegar lamporta, wróć do początkowego statusu
-	this->localStatus = 0;
-	*this->status = 0;
-	*this->myLamport += 1;
 }
 
 
@@ -513,30 +393,165 @@ void Communication::printMe()
 	cout << this->mpiRank << " ( " << *this->myLamport << " ) ";
 }
 
+void Communication::printMyGroup()
+{
+	for (int i = 0; i < maxNumParticipants; i++) 
+			if (this->myGroup[i])
+				cout << i << " ";  
+}
+
+void Communication::printQueue()
+{
+	std::priority_queue<requestData> tempQueue;
+	while (!this->openRequestsQueue.empty()) 
+	{
+		cout << this->openRequestsQueue.top().id << " (" << this->openRequestsQueue.top().lamport << ") - ";
+		tempQueue.push(this->openRequestsQueue.top());
+		this->openRequestsQueue.pop();
+	}
+	while (!tempQueue.empty()) {
+		this->openRequestsQueue.push(tempQueue.top());
+		tempQueue.pop();
+	}
+}
+
 void Communication::broadcastToAll(int tag)
 {
-	//Przygotowanie requesta do wyslania	
 	int lamportCopy = *this->myLamport;
-	struct singleParticipantData myMsg;
-	myMsg.id = this->mpiRank;
-	myMsg.lamport = lamportCopy;
 
-	//Wysylanie requesta do wszytskich (poza soba)
-	for(int i = 0; i < this->mpiSize; i++)
-		if(this->mpiRank != i)
-			MPI_Send(&myMsg, 1, this->mpi_single_participant_type, i, tag, MPI_COMM_WORLD);
+	if (tag == TAG_GROUP_CREATED)
+	{	
+		//Przygotowanie wiadomosci do wysłania, ..
+		struct groupInfoData myMsg;
+		myMsg.id = this->mpiRank;
+		myMsg.lamport = lamportCopy;
+		//.. w tym uzupelnienie informacji, kto jest w grupie
+		for(int i = 0; i < mpiSize; i++)
+				myMsg.participants[i] = inMyGroup(i);
+		//Wysylanie wiadomosci o utworzeniu grupy do wszytskich (poza soba)
+		for(int i = 0; i < this->mpiSize; i++)
+			if(this->mpiRank != i)
+				MPI_Send(&myMsg, 1, this->mpi_group_info_type, i, tag, MPI_COMM_WORLD);
+	}
+	else
+	{
+		//Przygotowanie requesta do wyslania	
+		struct requestData myMsg;
+		myMsg.id = this->mpiRank;
+		myMsg.lamport = lamportCopy;
+		//Wysylanie requesta do wszytskich (poza soba)
+		for(int i = 0; i < this->mpiSize; i++)
+			if(this->mpiRank != i)
+				MPI_Send(&myMsg, 1, this->mpi_request_type, i, tag, MPI_COMM_WORLD);
+	
+		if (tag == TAG_START_REQUEST)
+			this->openRequestsQueue.push(myMsg);
+	}
+	//Zwiększenie zegara Lamporta
+	*this->myLamport += 1;
 }
 
 void Communication::broadcastToMyGroup(int tag)
 {
 	//Przygotowanie requesta do wyslania	
 	int lamportCopy = *this->myLamport;
-	struct singleParticipantData myMsg;
+	struct requestData myMsg;
 	myMsg.id = this->mpiRank;
 	myMsg.lamport = lamportCopy;
 
 	//Wysylanie requesta do wszytskich ktorzy nadal sa ze mna w grupie (poza soba)
 	for(int i = 0; i < this->mpiSize; i++)
 		if(this->mpiRank != i && this->myGroup[i])
-			MPI_Send(&myMsg, 1, this->mpi_single_participant_type, i, tag, MPI_COMM_WORLD);
+			MPI_Send(&myMsg, 1, this->mpi_request_type, i, tag, MPI_COMM_WORLD);
+
+	//Zwiększenie zegara Lamporta
+	*this->myLamport += 1;
+}
+
+void Communication::sendMessage(int sendTo, int tag)
+{
+	//Przygotowanie requesta do wyslania	
+	int lamportCopy = *this->myLamport;
+	struct requestData myMsg;
+	myMsg.id = this->mpiRank;
+	myMsg.lamport = lamportCopy;
+
+	//Wyslanie wiadomosci do procesu o mpiRank równym sendTo
+	MPI_Send(&myMsg, 1, this->mpi_request_type, sendTo, tag, MPI_COMM_WORLD);
+
+	//Zwiększenie zegara Lamporta
+	*this->myLamport += 1;
+}
+
+void Communication::addAllToAwaitingAnswerList()
+{
+	//Wyczyść listę
+	this->awaitingAnswerList.clear();
+	//Dodaj wszystkie procesy (poza sobą samym) na listę procesów, na których odpowiedż czekam
+	for(int i = 0; i < this->mpiSize; i++)
+		if(i != this->mpiRank)
+			this->awaitingAnswerList.push_back(i);
+}
+
+void Communication::addMyGroupToAwaitingAnswerList()
+{
+	//Wyczyść listę
+	this->awaitingAnswerList.clear();
+	//Dodaj wszystkie procesy z mojej grupy (poza sobą samym) na listę procesów, na których odpowiedż czekam
+	for(int i = 0; i < this->mpiSize; i++)
+		if(i != this->mpiRank && inMyGroup(i))
+			this->awaitingAnswerList.push_back(i);
+}
+
+void Communication::removeParticipantsFromQueue(bool participants[])
+{
+	std::priority_queue<requestData> tempQueue;
+	//Przekładamy wszystkie żądania na tymczasową kolejkę
+	while (!this->openRequestsQueue.empty()) 
+	{
+		tempQueue.push(this->openRequestsQueue.top());
+		this->openRequestsQueue.pop();
+	}
+	//Do kolejki dodajemy z powrotem tylko żądania procesów, które nie zostały przydzielone do nowej grupy
+	while (!tempQueue.empty()) 
+	{
+		if (!participants[tempQueue.top().id])
+			this->openRequestsQueue.push(tempQueue.top());
+		tempQueue.pop();
+	}
+}
+
+bool Communication::firstOnQueue()
+{
+	return (!this->openRequestsQueue.empty() && this->openRequestsQueue.top().id == this->mpiRank);
+}
+
+void Communication::determineGroupMembers()
+{
+	int id;
+	// Utwórz grupę
+		while (!this->openRequestsQueue.empty()) 
+		{
+			id = this->openRequestsQueue.top().id;
+			this->myGroup[id] = true;
+			this->openRequestsQueue.pop();
+		}	
+}
+
+bool Communication::MyGroupEmpty() 
+{
+	for (int i = 0; i < maxNumParticipants; i++) 
+		if (i != this->mpiRank && this->myGroup[i]) 
+			return false;
+	return true;
+}
+
+bool Communication::inMyGroup(int id)
+{
+	return this->myGroup[id];
+}
+
+Communication::~Communication() 
+{
+	MPI_Type_free(&this->mpi_request_type);
 }
