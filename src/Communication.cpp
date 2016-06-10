@@ -22,6 +22,12 @@ Communication::Communication(int arbiters, int* status, int* myLamport, int mpiR
 	this->localStatus = *this->status;
 	this->waitingForArbiter = false;
 
+	for(int j = 0; j < maxNumParticipants; j++)
+	{
+			this->outdated[j] = 0;
+			this->myGroup[j] = false;
+	}
+
 	// Specjalne typy wiadomości
 
 	// Typ dla zwykłego żądania
@@ -59,9 +65,6 @@ void Communication::run() {
 	char procname[1000];
 	int a;
 	MPI_Get_processor_name(procname, &a);
-
-	for(int j = 0; j < maxNumParticipants; j++)
-		this->outdated[j] = 0;
 
 
 	// Ustaw odbieranie wiadomości każdego typu
