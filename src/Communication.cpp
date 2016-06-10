@@ -9,10 +9,10 @@
 #define TAG_GROUP_CREATED 5
 #define TAG_GROUP_RESOLVED 4
 
-#define PASSIVE 10
-#define WAITING 11
-#define DRINKING 12
-#define DEAD 13
+#define PASSIVE 0
+#define WAITING 1
+#define DRINKING 2
+#define DEAD 3
 
 using namespace std;
 
@@ -63,7 +63,7 @@ void Communication::run() {
 	MPI_Request recvRequests[5];
 	struct requestData recvRequestData[5];
 	struct groupInfoData recvGroupInfoData;
-
+	
 	// Ustaw odbieranie wiadomości każdego typu
 	for (i = 0; i < 5; i++)
 		MPI_Irecv(&recvRequestData[i], 1, this->mpi_request_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
@@ -77,7 +77,7 @@ void Communication::run() {
 		if (*this->status != this->localStatus) 
 		{
 			//Student wlaśnie postanowił, że chce wziąć udział w zawodach
-			if (*this->status == 1) 
+			if (*this->status == WAITING) 
 			{
 				// Wyślij żądanie do wszystkich procesów (informujące że chcę zacząć pić czyli zająć arbitra) 
 				this->broadcastToAll(TAG_START_REQUEST);
@@ -86,7 +86,7 @@ void Communication::run() {
 				// Dodaj moje żądanie na lokalną kolejkę żądań
 			} 
 			//Student właśnie padł, i chce opuścić grupę
-			else if (*this->status == 3) 
+			else if (*this->status == DEAD) 
 			{ 
 				//Jeżeli jest w niej sam, to ją rozwiązuje
 				if (this->MyGroupEmpty()) 
@@ -97,7 +97,7 @@ void Communication::run() {
 					//Zwalniam arbitra
 					this->arbiters += 1;
 					//Informuje watek logiczny ze nie uczestniczy juz w zawodach
-					*this->status = 0;
+					*this->status = PASSIVE;
 				} 
 				//Jeżeli nie jestem sam w grupie, to informuje pozostałych, że chcę ją opuścić
 				else 
@@ -131,7 +131,7 @@ void Communication::run() {
 					// Ustaw mój zegar Lamporta
 					*this->myLamport = max(recvRequestData[i].lamport, *this->myLamport) + 1;
 					// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
-					this->HandleMessage(i, &recvRequestData[i]);
+					this->HandleRequestMessage(i, &recvRequestData[i]);
 					anyready = true;
 					MPI_Irecv(&recvRequestData[i], 1, this->mpi_request_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
 				}
@@ -143,7 +143,7 @@ void Communication::run() {
 				// Ustaw mój zegar Lamporta
 				*this->myLamport = max(recvGroupInfoData.lamport, *this->myLamport) + 1;
 				// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
-				this->HandleMessageWithParticipants(&recvGroupInfoData);
+				this->HandleGroupInfoMessage(&recvGroupInfoData);
 				anyready = true;
 				MPI_Irecv(&recvGroupInfoData, 1, this->mpi_group_info_type, MPI_ANY_SOURCE, TAG_GROUP_CREATED, MPI_COMM_WORLD, &recvGroupInfo);
 			}
@@ -154,7 +154,7 @@ void Communication::run() {
 }
 
 
-void Communication::HandleMessage(int tag, struct requestData* data) {
+void Communication::HandleRequestMessage(int tag, struct requestData* data) {
 	struct requestData sender = *data;
 
 	switch(tag) {
@@ -163,7 +163,7 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 			// Usuń nadawcę z kolejki oczekiwań
 			this->awaitingAnswerList.remove(sender.id);
 			//Jeżeli chcę i mogę wejść do sekcji po arbitra, to wchodzę i próbuję utworzyć grupę
-			if (this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue()) 
+			if (this->localStatus == WAITING && this->awaitingAnswerList.empty() && this->firstOnQueue()) 
 			{
 				//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
 				if (this->requestsQueue.size() >= 2)
@@ -219,15 +219,15 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 				for (int i = 0; i < this->mpiSize; i++) 
 					this->myGroup[i] = false;
 				//Informuje watek logiczny ze nie uczestniczy juz w zawodach
-				this->localStatus = 0;
-				*this->status = 0;
+				this->localStatus = PASSIVE;
+				*this->status = PASSIVE;
 			}
 			break;
 
 		//Prośba innego procesu o zgodę, aby mógł opuścić grupę
 		case TAG_DIE_REQUEST:
 			//Jeżeli nadal piję i jestem z tym procesem w grupie
-			if (this->localStatus == 2 && inMyGroup(sender.id)) 
+			if (this->localStatus == DRINKING && inMyGroup(sender.id)) 
 			{	
 				//Wyslij zgodę na opuszczenie grupy
 				this->sendMessage(sender.id, TAG_DIE_RESPONSE);
@@ -236,7 +236,7 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 				//this->printMe(); cout << "wysylam zgodę na opuszczenie grupy procesowi " << sender.id << endl;
 			} 
 			//Jeżeli padłem już ale nadal jestem z tym procesem w grupie
-			else if (this->localStatus == 3 && inMyGroup(sender.id)) 
+			else if (this->localStatus == DEAD && inMyGroup(sender.id)) 
 			{
 				//Jeżeli oboje padliśmy, to odpowiedzialność za zwolnienie arbitra przypada na tego, który później padł, jeżeli padli w tym samym czasie to decyduje mpiRank
 				if (this->timeOfDeath > sender.lamport || (this->timeOfDeath == sender.lamport && this->mpiRank > sender.id))
@@ -257,8 +257,8 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 						//Zwalniam arbitra
 						this->arbiters += 1;
 						//Informuje watek logiczny ze nie uczestniczy juz w zawodach	
-						this->localStatus = 0;
-						*this->status = 0;
+						this->localStatus = PASSIVE;
+						*this->status = PASSIVE;
 					}
 				}
 				else
@@ -283,15 +283,15 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 }
 
 //Funkcja obslugi wiadomosci informujacej, ze inny proces utworzyl grupe
-void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
+void Communication::HandleGroupInfoMessage(struct groupInfoData* data)
+{
 	struct groupInfoData sender = *data;
 	bool participate = sender.participants[this->mpiRank];
-
 	// Jeśli jestem w grupie, to informuję wątek logiczny, że może zacząć pić
 	if (participate) 
 	{
-		this->localStatus = 2;
-		*this->status = 2; 
+		this->localStatus = DRINKING;
+		*this->status = DRINKING; 
 		//Skoro właśnie dowiedziałem się, że już jestem w grupie, to nie czekam już na żadne odpowiedzi
 		this->awaitingAnswerList.clear();
 	}
@@ -319,7 +319,7 @@ void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
 	// Jeżeli nie jestem w nowo utworzonej grupie, ale chcę wziąć udział w zawodach
 	// to sprawdzam czy jestem pierwszy na swojej kolejce żądań oraz czy nie oczekuję na żadną odpowiedź
 	// jeżeli te warunki są spełnione - próbuję stworzyć nową grupę
-	if (!participate && this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue())
+	if (!participate && this->localStatus == WAITING && this->awaitingAnswerList.empty() && this->firstOnQueue())
    	{		
 		//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
 		if (this->requestsQueue.size() >= 2)
@@ -349,8 +349,8 @@ bool Communication::tryToCreateGroup()
 		//Zajmij jednego arbitra
 		this->arbiters -= 1;
 		//Poinformuj wątek logiczny że został przydzielony do grupy i moze zacząć pić
-		this->localStatus = 2;
-		*this->status = 2;
+		this->localStatus = DRINKING;
+		*this->status = DRINKING;
 		return true;
 	} 
 	else 
@@ -376,7 +376,6 @@ void Communication::printMyGroup()
 void Communication::broadcastToAll(int tag)
 {
 	int lamportCopy = *this->myLamport;
-
 	if (tag == TAG_GROUP_CREATED)
 	{	
 		//Przygotowanie wiadomosci do wysłania, ..
@@ -401,7 +400,7 @@ void Communication::broadcastToAll(int tag)
 		for(int i = 0; i < this->mpiSize; i++)
 			if(this->mpiRank != i)
 				MPI_Send(&myMsg, 1, this->mpi_request_type, i, tag, MPI_COMM_WORLD);
-	
+		//Jeżeli wysyłam żądanie dostępu do sekcji, to muszę je też dodać do swojej kolejki
 		if (tag == TAG_START_REQUEST)
 			this->requestsQueue.push(myMsg);
 	}
@@ -416,12 +415,10 @@ void Communication::broadcastToMyGroup(int tag)
 	struct requestData myMsg;
 	myMsg.id = this->mpiRank;
 	myMsg.lamport = lamportCopy;
-
 	//Wysylanie requesta do wszytskich ktorzy nadal sa ze mna w grupie (poza soba)
 	for(int i = 0; i < this->mpiSize; i++)
 		if(this->mpiRank != i && this->myGroup[i])
 			MPI_Send(&myMsg, 1, this->mpi_request_type, i, tag, MPI_COMM_WORLD);
-
 	//Zwiększenie zegara Lamporta
 	*this->myLamport += 1;
 }
@@ -433,10 +430,8 @@ void Communication::sendMessage(int sendTo, int tag)
 	struct requestData myMsg;
 	myMsg.id = this->mpiRank;
 	myMsg.lamport = lamportCopy;
-
 	//Wyslanie wiadomosci do procesu o mpiRank równym sendTo
 	MPI_Send(&myMsg, 1, this->mpi_request_type, sendTo, tag, MPI_COMM_WORLD);
-
 	//Zwiększenie zegara Lamporta
 	*this->myLamport += 1;
 }
@@ -469,13 +464,13 @@ bool Communication::firstOnQueue()
 void Communication::determineGroupMembers()
 {
 	int id;
-	// Utwórz grupę
-		while (!this->requestsQueue.empty()) 
-		{
-			id = this->requestsQueue.top().id;
-			this->myGroup[id] = true;
-			this->requestsQueue.pop();
-		}	
+	//Określ, na podstawie zawartości kolejki żądań skład tworzonej grupy (wszystkie procesy oczekujące tworzą grupę)
+	while (!this->requestsQueue.empty()) 
+	{
+		id = this->requestsQueue.top().id;
+		this->myGroup[id] = true;
+		this->requestsQueue.pop();
+	}	
 }
 
 bool Communication::MyGroupEmpty() 

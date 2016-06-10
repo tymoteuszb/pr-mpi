@@ -8,18 +8,6 @@
 
 const int maxNumParticipants = 100;
 
-//struct requestData {
-//  int id;
-//  int lamport;
-//
- // bool operator<(const requestData& other) const {
-//    if(lamport == other.lamport)
-//      return id < other.id;
-//    else
-//      return lamport > other.lamport;
-//  }
-//};
-
 struct groupInfoData {
   int id;
   int lamport;
@@ -61,8 +49,8 @@ class Communication {
 	bool firstOnQueue();
 	void determineGroupMembers();
 	bool inMyGroup(int id);
-	void HandleMessageWithParticipants(struct groupInfoData* data);
-    void HandleMessage(int tag, struct requestData* data);
+	void HandleGroupInfoMessage(struct groupInfoData* data);
+    void HandleRequestMessage(int tag, struct requestData* data);
 };
 
 #endif
