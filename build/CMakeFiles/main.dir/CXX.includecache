@@ -9,14 +9,18 @@
 ../include/Communication.h
 mpi.h
 -
-queue
--
 list
 -
 string
 -
+Queue.h
+../include/Queue.h
 
 ../include/Logic.h
+
+../include/Queue.h
+queue
+-
 
 /home/inf117258/Documents/pr-mpi/main.cpp
 mpi.h
@@ -52,5 +56,11 @@ stdio.h
 stdlib.h
 -
 time.h
+-
+
+/home/inf117258/Documents/pr-mpi/src/Queue.cpp
+Queue.h
+/home/inf117258/Documents/pr-mpi/src/Queue.h
+iostream
 -
 

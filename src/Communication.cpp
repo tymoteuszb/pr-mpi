@@ -112,21 +112,16 @@ void Communication::run() {
 					for(list<int>::iterator i = awaitingAnswerList.begin(); i!=awaitingAnswerList.end(); i++)
 						cout << *i << " "; 
 					cout<<"ze chce opuscic grupe." << endl;
-
 				}
-
 			}
-
 			//Zaktualizuj status studenta, zeby wiedziec, że zmiana została już obsłużona
 			this->localStatus = *this->status;
-
 		} 
 		//Jezeli wątek logiczny nie zgłosił zmiany stanu studenta, to sprawdzamy, czy nie ma wiadomości do obsłużenia
 		else 
 		{
 			int ready = 0;
 			bool anyready = false;
-
 			// Sprawdź czy któryś z typów jest gotowy do odbioru
 			for (i = 0; i < 5; i++) 
 			{
@@ -135,32 +130,25 @@ void Communication::run() {
 				{
 					// Ustaw mój zegar Lamporta
 					*this->myLamport = max(recvRequestData[i].lamport, *this->myLamport) + 1;
-
 					// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
 					this->HandleMessage(i, &recvRequestData[i]);
 					anyready = true;
 					MPI_Irecv(&recvRequestData[i], 1, this->mpi_request_type, MPI_ANY_SOURCE, i, MPI_COMM_WORLD, &recvRequests[i]);
 				}
 			}
-
 			// Sprawdź też dla gupiego typu z dodatkową tablicą
 			MPI_Test(&recvGroupInfo, &ready, MPI_STATUS_IGNORE);
 			if (ready) 
 			{
-	
 				// Ustaw mój zegar Lamporta
 				*this->myLamport = max(recvGroupInfoData.lamport, *this->myLamport) + 1;
-
 				// Obsłuż wiadomość i przygotuj się do odbioru kolejnej wiadomości
 				this->HandleMessageWithParticipants(&recvGroupInfoData);
 				anyready = true;
 				MPI_Irecv(&recvGroupInfoData, 1, this->mpi_group_info_type, MPI_ANY_SOURCE, TAG_GROUP_CREATED, MPI_COMM_WORLD, &recvGroupInfo);
 			}
-
-			if (!anyready) {
+			if (!anyready)
 				usleep(500000);
-			}
-
 		}
 	}
 }
@@ -170,7 +158,6 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 	struct requestData sender = *data;
 
 	switch(tag) {
-
 		//Potwierdzenie od innego procesu, że otrzymał moje żądanie do sekcji
 		case TAG_START_RESPONSE:
 			// Usuń nadawcę z kolejki oczekiwań
@@ -179,9 +166,9 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 			if (this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue()) 
 			{
 				//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
-				if (this->openRequestsQueue.size() >= 2)
+				if (this->requestsQueue.size() >= 2)
 				{
-					this->printMe(); cout << "zaraz sprobuje utworzyc grupe,  moja kolejka przed wejsciem do sekcji to : "; this->printQueue(); cout << endl;
+					this->printMe(); cout << "zaraz sprobuje utworzyc grupe,  moja kolejka przed wejsciem do sekcji to : "; this->requestsQueue.print(); cout << endl;
 					this->waitingForArbiter = !this->tryToCreateGroup();
 				}
 				//Jeżeli tylko ja chcę pić, to muszę poczekać na więcej chętnych przed utworzeniem grupy
@@ -199,7 +186,7 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 			if (sender.lamport >= this->outdated[sender.id])
 			{
 				//Dodaj nowe żądanie na kolejkę
-				this->openRequestsQueue.push(sender);
+				this->requestsQueue.push(sender);
 				//Jeżeli czekałem z utworzeniem grupy na kolejnego chętnego, to spróbuję utworzyć grupę
 				if (this->waitingForParticipants)
 				{
@@ -216,10 +203,8 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 			}
 			else
 			{
-				this->printMe(); cout << "otrzymalem przedawnionego requesta ("<<sender.lamport<<" < " << this->outdated[sender.id]  <<") informujacego o checi wziecia udzialu od " << sender.id << endl;
+				//this->printMe(); cout << "otrzymalem przedawnionego requesta ("<<sender.lamport<<" < " << this->outdated[sender.id]  <<") informujacego o checi wziecia udzialu od " << sender.id << endl;
 			}
-			//jezeli przedawniony to nie odsylam nic - czy na pewno?
-			
 			break;
 
 		//Zgoda od innego procesu na opuszczenie grupy
@@ -288,7 +273,7 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 		case TAG_GROUP_RESOLVED:
 			//Rozwiazano grupę, jest o 1 arbitra więcej
 			this->arbiters +=1;
-			this->printMe(); cout << "proces " << sender.id << " zwolnil arbitra jest ich teraz " <<  this->arbiters << " dostepnych." << endl;
+			//this->printMe(); cout << "proces " << sender.id << " zwolnil arbitra jest ich teraz " <<  this->arbiters << " dostepnych." << endl;
 			// Jeśli czekałem na arbitra, spróbuję jeszcze raz utworzyć grupę
 			if (this->waitingForArbiter) 
 				this->waitingForArbiter = !this->tryToCreateGroup();
@@ -300,22 +285,21 @@ void Communication::HandleMessage(int tag, struct requestData* data) {
 //Funkcja obslugi wiadomosci informujacej, ze inny proces utworzyl grupe
 void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
 	struct groupInfoData sender = *data;
-	//int tempId = this->openRequestsQueue.top().id;
 	bool participate = sender.participants[this->mpiRank];
 
-
 	// Jeśli jestem w grupie, to informuję wątek logiczny, że może zacząć pić
-	if (participate) {
+	if (participate) 
+	{
 		this->localStatus = 2;
 		*this->status = 2; 
 		//Skoro właśnie dowiedziałem się, że już jestem w grupie, to nie czekam już na żadne odpowiedzi
 		this->awaitingAnswerList.clear();
 	}
-
 	// Dla wszystkich członków nowo powstałej grupy usuń ich żądania dostępu do sekcji krytycznej OPEN
-	this->removeParticipantsFromQueue(sender.participants);
+	this->requestsQueue.removeParticipants(sender.participants);
 
 	this->printMe(); cout << "proces " << sender.id << " utworzyl grupe o skladzie: ";
+	// Ustawianie wartosci outdated dla wszytskich czlonkow grupy, aby uniknac dodania ich spóźnionych żądań do kolejki,
 	// Dodatkowo, jeśli sam jestem w tej grupie, dodaję wszystkich członków do mojej lokalnej zmiennej określającej grupę	
 	for(int i = 0; i < maxNumParticipants; i++)
 	{
@@ -327,24 +311,20 @@ void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
 				this->myGroup[i] = true;
 		}
 	}
-
 	if(participate)
 		cout << ", jestem w niej!";
     cout << endl;
-	//else
-	//	cout << ", nie ma mnie w niej. (moj status: " << this->localStatus << ")." << endl;
-
+	//Zmniejszenie liczby arbitrów, bo jeden został zajęty przez nową grupę
 	this->arbiters -= 1;
-
 	// Jeżeli nie jestem w nowo utworzonej grupie, ale chcę wziąć udział w zawodach
 	// to sprawdzam czy jestem pierwszy na swojej kolejce żądań oraz czy nie oczekuję na żadną odpowiedź
 	// jeżeli te warunki są spełnione - próbuję stworzyć nową grupę
 	if (!participate && this->localStatus == 1 && this->awaitingAnswerList.empty() && this->firstOnQueue())
    	{		
 		//Jeżeli jest conajmniej dwoch chetnych (łącznie ze mną_ to próbuję utworzyć grupę
-		if (this->openRequestsQueue.size() >= 2)
+		if (this->requestsQueue.size() >= 2)
 		{
-			this->printMe(); cout << "nie zostalem przydzielony do nowej grupy, zaraz sprobuje utworzyc kolejną,  moja kolejka przed wejsciem do sekcji to : "; this->printQueue(); cout << endl;
+			this->printMe(); cout << "nie zostalem przydzielony do nowej grupy, zaraz sprobuje utworzyc kolejną,  moja kolejka przed wejsciem do sekcji to : "; this->requestsQueue.print(); cout << endl;
 			this->waitingForArbiter = !this->tryToCreateGroup();
 		}
 		//Jeżeli tylko ja chcę pić, to muszę poczekać na więcej chętnych przed utworzeniem grupy
@@ -353,19 +333,12 @@ void Communication::HandleMessageWithParticipants(struct groupInfoData* data) {
 			this->printMe(); cout << "nie zostałem przydzielony do nowej grupy, ale tylko ja chcę pić, muszę poczekać na więcej chętnych." << endl;
 			this->waitingForParticipants = true;
 		}
-			
-			
-			cout << this->mpiRank << " (" << *this->myLamport << ")  nie zostalem przydzielony do nowo utworzonej grupy, probuje utworzyc nowa." << endl;
-		this->waitingForArbiter = !this->tryToCreateGroup();
 	}
-	//cout << this->mpiRank << " ( " << *(this->myLamport) << " )" << " arbiters: " << this->arbiters << endl;
 }
 
 bool Communication::tryToCreateGroup() 
 {
-	int id;
-
-	// Czy mamy jeszcze arbitrów?
+	// Czy sa jacys dostępni arbitrzy?
 	if (this->arbiters > 0) 
 	{	
 		//Ustal kto jest członkiem grupy (wszyscy, ktorych żądania są na kolejce, łącznie ze mną)
@@ -400,21 +373,6 @@ void Communication::printMyGroup()
 				cout << i << " ";  
 }
 
-void Communication::printQueue()
-{
-	std::priority_queue<requestData> tempQueue;
-	while (!this->openRequestsQueue.empty()) 
-	{
-		cout << this->openRequestsQueue.top().id << " (" << this->openRequestsQueue.top().lamport << ") - ";
-		tempQueue.push(this->openRequestsQueue.top());
-		this->openRequestsQueue.pop();
-	}
-	while (!tempQueue.empty()) {
-		this->openRequestsQueue.push(tempQueue.top());
-		tempQueue.pop();
-	}
-}
-
 void Communication::broadcastToAll(int tag)
 {
 	int lamportCopy = *this->myLamport;
@@ -445,7 +403,7 @@ void Communication::broadcastToAll(int tag)
 				MPI_Send(&myMsg, 1, this->mpi_request_type, i, tag, MPI_COMM_WORLD);
 	
 		if (tag == TAG_START_REQUEST)
-			this->openRequestsQueue.push(myMsg);
+			this->requestsQueue.push(myMsg);
 	}
 	//Zwiększenie zegara Lamporta
 	*this->myLamport += 1;
@@ -503,38 +461,20 @@ void Communication::addMyGroupToAwaitingAnswerList()
 			this->awaitingAnswerList.push_back(i);
 }
 
-void Communication::removeParticipantsFromQueue(bool participants[])
-{
-	std::priority_queue<requestData> tempQueue;
-	//Przekładamy wszystkie żądania na tymczasową kolejkę
-	while (!this->openRequestsQueue.empty()) 
-	{
-		tempQueue.push(this->openRequestsQueue.top());
-		this->openRequestsQueue.pop();
-	}
-	//Do kolejki dodajemy z powrotem tylko żądania procesów, które nie zostały przydzielone do nowej grupy
-	while (!tempQueue.empty()) 
-	{
-		if (!participants[tempQueue.top().id])
-			this->openRequestsQueue.push(tempQueue.top());
-		tempQueue.pop();
-	}
-}
-
 bool Communication::firstOnQueue()
 {
-	return (!this->openRequestsQueue.empty() && this->openRequestsQueue.top().id == this->mpiRank);
+	return this->requestsQueue.first(this->mpiRank);
 }
 
 void Communication::determineGroupMembers()
 {
 	int id;
 	// Utwórz grupę
-		while (!this->openRequestsQueue.empty()) 
+		while (!this->requestsQueue.empty()) 
 		{
-			id = this->openRequestsQueue.top().id;
+			id = this->requestsQueue.top().id;
 			this->myGroup[id] = true;
-			this->openRequestsQueue.pop();
+			this->requestsQueue.pop();
 		}	
 }
 

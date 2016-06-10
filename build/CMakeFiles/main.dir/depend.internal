@@ -4,10 +4,15 @@
 CMakeFiles/main.dir/main.cpp.o
  ../include/Communication.h
  ../include/Logic.h
+ ../include/Queue.h
  /home/inf117258/Documents/pr-mpi/main.cpp
 CMakeFiles/main.dir/src/Communication.cpp.o
  ../include/Communication.h
+ ../include/Queue.h
  /home/inf117258/Documents/pr-mpi/src/Communication.cpp
 CMakeFiles/main.dir/src/Logic.cpp.o
  ../include/Logic.h
  /home/inf117258/Documents/pr-mpi/src/Logic.cpp
+CMakeFiles/main.dir/src/Queue.cpp.o
+ ../include/Queue.h
+ /home/inf117258/Documents/pr-mpi/src/Queue.cpp

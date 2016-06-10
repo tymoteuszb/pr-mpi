@@ -2,23 +2,23 @@
 #define COMMUNICATION_H
 
 #include <mpi.h>
-#include <queue>
 #include <list>
 #include <string>
+#include "Queue.h"
 
 const int maxNumParticipants = 100;
 
-struct requestData {
-  int id;
-  int lamport;
-
-  bool operator<(const requestData& other) const {
-    if(lamport == other.lamport)
-      return id < other.id;
-    else
-      return lamport > other.lamport;
-  }
-};
+//struct requestData {
+//  int id;
+//  int lamport;
+//
+ // bool operator<(const requestData& other) const {
+//    if(lamport == other.lamport)
+//      return id < other.id;
+//    else
+//      return lamport > other.lamport;
+//  }
+//};
 
 struct groupInfoData {
   int id;
@@ -43,14 +43,13 @@ class Communication {
 	bool waitingForParticipants;
     bool myGroup[maxNumParticipants];
     int outdated[maxNumParticipants];
-    std::priority_queue<requestData> openRequestsQueue;
+    Queue requestsQueue;
     std::list<int> awaitingAnswerList;
     MPI_Datatype mpi_request_type;
     MPI_Datatype mpi_group_info_type;
 
 	void printMe();
 	void printMyGroup();
-	void printQueue();
     bool MyGroupEmpty();
     bool tryToCreateGroup();
     void resolveGroup();
@@ -60,7 +59,6 @@ class Communication {
 	void addAllToAwaitingAnswerList();
 	void addMyGroupToAwaitingAnswerList();
 	bool firstOnQueue();
-	void removeParticipantsFromQueue(bool participants[]);
 	void determineGroupMembers();
 	bool inMyGroup(int id);
 	void HandleMessageWithParticipants(struct groupInfoData* data);

@@ -7,6 +7,7 @@ set(CMAKE_DEPENDS_CHECK_CXX
   "/home/inf117258/Documents/pr-mpi/main.cpp" "/home/inf117258/Documents/pr-mpi/build/CMakeFiles/main.dir/main.cpp.o"
   "/home/inf117258/Documents/pr-mpi/src/Communication.cpp" "/home/inf117258/Documents/pr-mpi/build/CMakeFiles/main.dir/src/Communication.cpp.o"
   "/home/inf117258/Documents/pr-mpi/src/Logic.cpp" "/home/inf117258/Documents/pr-mpi/build/CMakeFiles/main.dir/src/Logic.cpp.o"
+  "/home/inf117258/Documents/pr-mpi/src/Queue.cpp" "/home/inf117258/Documents/pr-mpi/build/CMakeFiles/main.dir/src/Queue.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 

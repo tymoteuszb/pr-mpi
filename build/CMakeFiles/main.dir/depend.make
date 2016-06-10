@@ -3,11 +3,16 @@
 
 CMakeFiles/main.dir/main.cpp.o: ../include/Communication.h
 CMakeFiles/main.dir/main.cpp.o: ../include/Logic.h
+CMakeFiles/main.dir/main.cpp.o: ../include/Queue.h
 CMakeFiles/main.dir/main.cpp.o: ../main.cpp
 
 CMakeFiles/main.dir/src/Communication.cpp.o: ../include/Communication.h
+CMakeFiles/main.dir/src/Communication.cpp.o: ../include/Queue.h
 CMakeFiles/main.dir/src/Communication.cpp.o: ../src/Communication.cpp
 
 CMakeFiles/main.dir/src/Logic.cpp.o: ../include/Logic.h
 CMakeFiles/main.dir/src/Logic.cpp.o: ../src/Logic.cpp
+
+CMakeFiles/main.dir/src/Queue.cpp.o: ../include/Queue.h
+CMakeFiles/main.dir/src/Queue.cpp.o: ../src/Queue.cpp
 
